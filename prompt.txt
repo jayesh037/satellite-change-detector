@@ -1,0 +1,322 @@
+You are a senior software architect, ML engineer, and geospatial systems expert.
+
+I am providing a Markdown (.md) file that contains:
+
+* Full project architecture and plan
+* Partial implementation/code
+
+# DATASET SPECIFICATION (VERY IMPORTANT)
+
+## 🔹 Dataset 1: LEVIR-CD (Standard)
+
+Type: Change Detection Dataset
+
+Structure:
+data/LEVIR-CD/
+train/
+A/
+B/
+label/
+val/
+A/
+B/
+label/
+
+Details:
+
+* Image format: PNG
+* Image size: 1024x1024
+* Patch size used: 256x256
+* Channels: RGB (3 channels)
+* Labels: Binary mask (0 = no change, 1 = change)
+* Naming: Same filename exists in A, B, and label
+
+Example:
+A/0001.png
+B/0001.png
+label/0001.png
+
+---
+
+## 🔹 Dataset 2: ISRO / Sentinel-2 (Custom Satellite Data)
+
+Type: Sentinel-2 Level-2A SAFE format (multi-band satellite data)
+
+Structure:
+data/ISRO/
+2021/
+SAFE/
+GRANULE/.../IMG_DATA/R10m/
+B02.jp2 (Blue)
+B03.jp2 (Green)
+B04.jp2 (Red)
+B08.jp2 (NIR)
+2023/
+SAFE/
+GRANULE/.../IMG_DATA/R10m/
+B02.jp2
+B03.jp2
+B04.jp2
+B08.jp2
+
+Details:
+
+* Format: JP2 (JPEG2000)
+* Bands used: B02, B03, B04, B08
+* Channels: 4 (RGB + NIR)
+* Resolution: 10m
+* CRS: UTM (auto from metadata)
+* Labels: NOT available (inference only)
+
+Processing Requirements:
+
+* Load JP2 bands using rasterio or GDAL
+* Stack bands → (H, W, 4)
+* Normalize values
+* Ensure alignment between t1 and t2
+* Tile into 256x256 patches before inference
+
+NDVI:
+
+* NDVI = (B08 - B04) / (B08 + B04)
+* Use NDVI for filtering vegetation changes
+
+Important:
+
+* Do NOT use R20m or R60m bands
+* Do NOT treat files as single images
+* Must combine bands manually
+
+---
+
+## 🔹 Temporal Pairing
+
+t1 = 14 March 2021
+t2 = 14 March 2023
+
+Both correspond to same tile: T43PGQ
+
+---
+
+## 🔹 Training vs Inference
+
+* Training: LEVIR-CD (RGB only)
+* Inference: ISRO dataset (RGB + NIR)
+
+Model Adjustment:
+
+* During inference, use only RGB channels OR
+* Extend model to accept 4 channels (recommended)
+
+🔹 Expected Output
+Binary change mask
+GeoTIFF output (georeferenced)
+GeoJSON polygons (for visualization)
+
+Your task is to **analyze, correct, and fully complete the entire project in ONE response**, producing a production-ready system.
+
+---
+
+# 🔴 CRITICAL INSTRUCTIONS
+
+* Do NOT give generic advice
+* Do NOT skip implementation details
+* Do NOT leave placeholders like "implement this later"
+* You MUST produce a **complete, working, end-to-end system design with code**
+* You MUST fix architectural flaws before building
+* You MUST ensure all components integrate correctly
+
+---
+
+# 🧠 STEP 1 — Deep Understanding
+
+* Parse the entire document
+* Summarize:
+
+  * Project goal
+  * Data flow
+  * Tech stack
+  * Core ML approach
+
+---
+
+# 🏗️ STEP 2 — Architecture Correction (MANDATORY)
+
+* Identify flaws in:
+
+  * System design
+  * Data pipeline
+  * ML pipeline
+  * Scalability
+* Redesign the architecture properly
+
+### You MUST include:
+
+* Service separation (API, ML, Workers)
+* Async processing (queue-based)
+* Tiling system for large satellite images
+* Geo-alignment handling
+* Storage design (PostgreSQL + PostGIS)
+
+---
+
+# 🧩 STEP 3 — Final System Architecture
+
+Provide a **clean, production-ready architecture diagram (text-based)** including:
+
+Frontend → API → Queue → Worker → ML → DB → Alerts
+
+---
+
+# 🧱 STEP 4 — FULL PROJECT STRUCTURE
+
+Generate a complete folder structure like:
+
+project/
+
+* backend/
+* ml/
+* pipeline/
+* workers/
+* frontend/
+
+Each folder must include clearly defined responsibilities.
+
+---
+
+# 💻 STEP 5 — COMPLETE IMPLEMENTATION (VERY IMPORTANT)
+
+You MUST generate REAL CODE for:
+
+## 🔹 ML Layer
+
+* Siamese UNet (PyTorch)
+* Training script
+* Inference script
+
+## 🔹 Pipeline Layer
+
+* Image tiling (large GeoTIFF → patches)
+* Stitching predictions back
+* Preprocessing (normalization)
+* Post-processing:
+
+  * noise removal
+  * NDVI filtering
+
+## 🔹 GIS Layer
+
+* Read GeoTIFF (Rasterio)
+* Align images (CRS, resolution)
+* Convert mask → GeoJSON
+
+## 🔹 Backend (FastAPI)
+
+* Endpoints:
+
+  * POST /detect-change
+  * GET /results/{id}
+* AOI handling
+* File handling
+
+## 🔹 Worker System
+
+* Celery + Redis setup
+* Async task for:
+
+  * preprocessing
+  * inference
+  * postprocessing
+  * saving results
+
+## 🔹 Database
+
+* PostgreSQL + PostGIS schema
+* Tables for:
+
+  * AOIs
+  * results
+  * alerts
+
+## 🔹 Alert System
+
+* Trigger logic:
+
+  * area threshold
+  * filtered changes
+* Email or logging-based alert implementation
+
+## 🔹 Frontend (Minimal but functional)
+
+* Map (Leaflet or Mapbox)
+* Upload/select AOI
+* Display GeoJSON overlay
+* Show detected changes
+
+---
+
+# 🧩 STEP 6 — END-TO-END PIPELINE FLOW
+
+Provide a step-by-step flow:
+
+User → Upload AOI → Queue → Worker → ML → GIS → DB → Alert → Frontend
+
+---
+
+# ⚙️ STEP 7 — CONFIGURATION & RUNNING
+
+Provide:
+
+* requirements.txt
+* How to run backend
+* How to run workers
+* How to train model
+* How to test inference
+
+---
+
+# 🚀 STEP 8 — QUALITY REQUIREMENTS
+
+* Code must be:
+
+  * Clean
+  * Modular
+  * Production-ready
+* Use best practices:
+
+  * Separation of concerns
+  * Reusable functions
+  * Proper structure
+
+---
+
+# 🔥 STEP 9 — OPTIONAL ADVANCED FEATURES
+
+If possible, include:
+
+* NDVI-based filtering
+* Change classification (basic)
+* Confidence scoring
+
+---
+
+# 📦 FINAL OUTPUT FORMAT
+
+Your response MUST be structured exactly like this:
+
+1. Project Summary
+2. Fixed Architecture (with explanation)
+3. Final System Design (diagram)
+4. Folder Structure
+5. Full Implementation (all modules with code)
+6. End-to-End Flow
+7. Setup & Run Instructions
+8. Optional Enhancements
+
+---
+
+# ⚠️ IMPORTANT
+
+* Assume no prior code is correct — fix everything if needed
+* Ensure ALL parts connect and run logically
+* Do NOT stop midway — complete the entire system

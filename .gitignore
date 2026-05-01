@@ -1,0 +1,31 @@
+# Environment & secrets
+.env
+configs/config.yaml
+
+# Data (too large for GitHub)
+data/
+checkpoints/
+outputs/
+mlruns/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+
+# Conda/pip
+venv/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
