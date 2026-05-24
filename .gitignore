@@ -45,3 +45,7 @@ mlflow.db
 # Temp scripts
 rewrite_frontend.py
 prompt.txt
+GEMINI.md
+PLAN.md
+PROJECT_STATUS.md
+STATUS.md
