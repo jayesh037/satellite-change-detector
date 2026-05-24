@@ -3,7 +3,9 @@ import sys
 import yaml
 import json
 import traceback
+import redis
 from pathlib import Path
+from typing import Optional
 from celery import Celery
 
 # Add the project root to the python path to allow absolute imports
@@ -11,7 +13,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline.inference import run_inference
 from workers.alerts import trigger_alert
-
+from backend.copernicus import download_scene
+from database.models import SessionLocal, DetectionResult, Alert
 
 # Load configuration for Celery Redis broker
 config_path = "configs/config.yaml"
@@ -44,17 +47,27 @@ celery_app.conf.update(
 
 
 @celery_app.task(bind=True, name="workers.tasks.run_detection_task")
-def run_detection_task(self, result_id: str, t1_folder: str, t2_folder: str) -> dict:
+def run_detection_task(
+    self, 
+    result_id: str, 
+    t1_folder: str, 
+    t2_folder: str, 
+    aoi_geojson: Optional[str] = None,
+    recipient_email: Optional[str] = None,
+    alert_threshold_km2: float = 1.0,
+    t1_date: Optional[str] = None,
+    t2_date: Optional[str] = None
+) -> dict:
     """
     Celery task to run the end-to-end change detection pipeline.
     
     Steps:
-    1. Update status to 'processing' (save to JSON)
+    1. Update status to 'processing' in Database.
     2. Run pipeline/inference.py run_inference()
-    3. Save results to JSON file
+    3. Update DB with final results.
     4. Check area threshold -> trigger alert if needed
-    5. Update status to 'complete'
-    6. On any error: update status to 'failed', log error
+    5. Update status to 'complete' in Database.
+    6. On any error: update status to 'failed' in DB, log error
 
     Args:
         result_id (str): Primary key of the DetectionResult.
@@ -67,23 +80,28 @@ def run_detection_task(self, result_id: str, t1_folder: str, t2_folder: str) -> 
     task_id = self.request.id
     output_dir = Path("outputs") / f"task_{task_id}"
     output_dir.mkdir(parents=True, exist_ok=True)
-    result_file = output_dir / "result.json"
     
-    def save_state(state_dict):
-        with open(result_file, "w") as f:
-            json.dump(state_dict, f)
-            
-    state = {
-        "id": result_id,
-        "task_id": task_id,
-        "status": "processing"
-    }
-    save_state(state)
+    db = SessionLocal()
+    
+    def update_status(status: str, **kwargs):
+        try:
+            db_result = db.query(DetectionResult).filter(DetectionResult.id == int(result_id)).first()
+            if db_result:
+                db_result.status = status
+                for k, v in kwargs.items():
+                    setattr(db_result, k, v)
+                db.commit()
+        except Exception as e:
+            print(f"Error updating DB status: {e}")
+            db.rollback()
+
+    update_status("processing")
     
     try:
         print(f"Starting change detection task {task_id} for Result ID {result_id}")
         print(f"T1 Folder: {t1_folder}")
         print(f"T2 Folder: {t2_folder}")
+        print(f"AOI GeoJSON received: {'yes' if aoi_geojson else 'no'}")
         
         # 2. Run pipeline/inference.py run_inference()
         # Assume checkpoint is in the default location
@@ -94,38 +112,44 @@ def run_detection_task(self, result_id: str, t1_folder: str, t2_folder: str) -> 
             t2_folder=t2_folder,
             checkpoint_path=checkpoint_path,
             output_dir=output_dir,
+            aoi_geojson=aoi_geojson
             # We use default inference parameters, but these could be passed via request if needed
         )
         
         changed_area_km2 = inference_results["changed_area_km2"]
         
-        # 3. Save results to JSON file
-        state.update({
-            "change_mask_path": str(inference_results["geotiff_path"]),
-            "geojson_path": str(inference_results["geojson_path"]),
-            "changed_area_km2": changed_area_km2
-        })
-        
-        # 4. Check area threshold -> trigger alert if needed
-        # We re-read threshold from config locally in case it changed without restarting worker
-        current_threshold = alert_threshold
-        try:
-            if os.path.exists(config_path):
-                with open(config_path, "r") as f:
-                    cfg = yaml.safe_load(f) or {}
-                    current_threshold = cfg.get("alerts", {}).get("threshold_km2", alert_threshold)
-        except Exception:
-            pass
-            
-        trigger_alert(
-            result_id=result_id, 
-            changed_area_km2=changed_area_km2, 
-            threshold_km2=current_threshold
+        # 3. Save results to DB
+        update_status(
+            status="complete",
+            change_mask_path=str(inference_results["geotiff_path"]),
+            geojson_path=str(inference_results["geojson_path"]),
+            changed_area_km2=changed_area_km2
         )
         
-        # 5. Update status to "complete"
-        state["status"] = "complete"
-        save_state(state)
+        # 4. Check area threshold -> trigger alert if needed
+        if changed_area_km2 >= alert_threshold_km2:
+            try:
+                message = f"Significant change detected! {changed_area_km2:.4f} km2 changed between {t1_date} and {t2_date}."
+                new_alert = Alert(
+                    result_id=int(result_id),
+                    message=message
+                )
+                db.add(new_alert)
+                db.commit()
+                print(f"Alert recorded in database for Result ID {result_id}")
+                trigger_alert(
+                    result_id=result_id,
+                    changed_area_km2=changed_area_km2,
+                    threshold_km2=alert_threshold_km2,
+                    recipient_email=recipient_email,
+                    task_id=task_id,
+                    tile="T43PGQ",
+                    t1_date=t1_date or "",
+                    t2_date=t2_date or ""
+                )
+            except Exception as e:
+                print(f"Error inserting alert into DB: {e}")
+                db.rollback()
         
         print(f"Task {task_id} completed successfully. Changed Area: {changed_area_km2:.4f} km²")
         return {"status": "success", "task_id": task_id, "changed_area_km2": changed_area_km2}
@@ -136,8 +160,43 @@ def run_detection_task(self, result_id: str, t1_folder: str, t2_folder: str) -> 
         print(f"Task {task_id} FAILED with error: {e}")
         print(error_trace)
         
-        state["status"] = "failed"
-        save_state(state)
+        update_status("failed")
             
         # Re-raise the exception so Celery marks the task as failed
+        raise e
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True)
+def download_scene_task(self, download_id, title, year):
+    r = redis.Redis.from_url(redis_url)
+    key = f"dl_progress:{self.request.id}"
+    
+    # Store initial state
+    r.set(key, json.dumps({"status": "downloading", "progress": 0}))
+
+    def progress_callback(percent):
+        r.set(key, json.dumps({"status": "downloading", "progress": percent}))
+
+    try:
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                app_config = yaml.safe_load(f) or {}
+        else:
+            app_config = {}
+            
+        safe_path = download_scene(
+            download_id=download_id,
+            year=year,
+            config=app_config,
+            progress_callback=progress_callback
+        )
+        r.set(key, json.dumps({"status": "complete", "progress": 100, "safe_path": str(safe_path)}))
+        return {"status": "complete", "safe_path": str(safe_path)}
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        print(f"Task {self.request.id} FAILED with error: {e}")
+        print(error_trace)
+        r.set(key, json.dumps({"status": "failed", "progress": 0, "error": str(e)}))
         raise e

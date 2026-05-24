@@ -1,13 +1,31 @@
 import os
+import json
 from pathlib import Path
-from typing import Tuple, Dict, Any, Union
+from typing import Tuple, Dict, Any, Union, Optional
 
 import numpy as np
 import rasterio
+from rasterio.env import Env
 from rasterio.warp import calculate_default_transform, reproject, Resampling
 from rasterio.crs import CRS
 from rasterio.transform import from_bounds
-import glymur
+import rasterio.mask
+import rasterio.features
+from rasterio.io import MemoryFile
+from pyproj import Transformer
+from shapely.geometry import shape
+from shapely.ops import transform as shapely_transform
+
+# Platform check for JP2 drivers
+with Env() as env:
+    drivers = env.drivers()
+    jp2_drivers = [d for d in drivers.keys() if 'JP2' in d]
+    print(f"Available JP2 drivers: {jp2_drivers}")
+    if 'JP2OpenJPEG' not in drivers:
+        raise RuntimeError(
+            "JP2OpenJPEG GDAL driver is required to natively read Sentinel-2 JP2 files but was not found. "
+            "On Pop OS/Ubuntu, try installing: sudo apt-get install libopenjp2-7 gdal-bin libgdal-dev"
+        )
 
 
 def load_sentinel2_bands(folder_path: Union[str, Path]) -> Tuple[np.ndarray, Dict[str, Any], CRS]:
@@ -15,10 +33,8 @@ def load_sentinel2_bands(folder_path: Union[str, Path]) -> Tuple[np.ndarray, Dic
     Loads Sentinel-2 bands (B02, B03, B04, B08) from a specified folder,
     stacks them, and normalizes the values using 2nd to 98th percentile clipping.
 
-    It uses glymur to read the JP2 pixel data. It generates synthetic transform
-    and CRS metadata based on standard Sentinel-2 T43PGQ bounds to avoid opening
-    JP2 files with rasterio, which may fail. It expects band files to be named 
-    like T43PGQ_XXXXXXXX_B02_10m.jp2.
+    It uses rasterio to read the JP2 pixel data and extracts proper spatial metadata.
+    It expects band files to be named like T43PGQ_XXXXXXXX_B02_10m.jp2.
 
     Args:
         folder_path (Union[str, Path]): Path to the folder containing the .jp2 files.
@@ -50,25 +66,23 @@ def load_sentinel2_bands(folder_path: Union[str, Path]) -> Tuple[np.ndarray, Dic
         band_paths[band] = matches[0]
 
     bands_data = []
+    meta = None
+    crs = None
 
-    # Read each band purely using glymur
-    for band in band_names:
+    # Read each band using rasterio
+    for i, band in enumerate(band_names):
         band_path = str(band_paths[band])
         
-        # Read pixel data using glymur
-        jp2 = glymur.Jp2k(band_path)
-        data = jp2[:].astype(np.float32)
-        
-        # If the image has a single channel, it might be returned as (H, W, 1). We ensure it's (H, W)
-        if data.ndim == 3 and data.shape[2] == 1:
-            data = data.squeeze(-1)
-            
-        bands_data.append(data)
+        with rasterio.open(band_path) as src:
+            data = src.read(1).astype(np.float32)
+            if i == 0:
+                meta = src.profile.copy()
+                crs = src.crs
+            bands_data.append(data)
 
     # Stack bands into (C, H, W)
     # where C=4 corresponding to B02, B03, B04, B08
     stacked_bands = np.stack(bands_data, axis=0)
-    _, h, w = stacked_bands.shape
     
     # Normalize using 2nd and 98th percentile clipping to ignore extreme outliers
     # We do this globally across the image to preserve relative band ratios.
@@ -82,22 +96,12 @@ def load_sentinel2_bands(folder_path: Union[str, Path]) -> Tuple[np.ndarray, Dic
     # Transpose to (H, W, 4)
     normalized_bands = np.transpose(normalized_bands, (1, 2, 0))
 
-    # Generate synthetic metadata for Sentinel-2 T43PGQ approximate bounds
-    # bbox: 78.0, 18.0, 79.0, 19.0 (west, south, east, north)
-    transform = from_bounds(78.0, 18.0, 79.0, 19.0, w, h)
-    crs = CRS.from_epsg(4326)
-    
-    # Create the metadata dictionary
-    meta = {
+    # Update the metadata for the stacked image
+    meta.update({
         "driver": "GTiff",
         "dtype": "float32",
-        "nodata": None,
-        "width": w,
-        "height": h,
-        "count": 4,
-        "crs": crs,
-        "transform": transform
-    }
+        "count": 4
+    })
 
     return normalized_bands, meta, crs
 
@@ -201,3 +205,120 @@ def compute_ndvi(bands: np.ndarray) -> np.ndarray:
     ndvi = np.clip(ndvi, -1.0, 1.0)
     
     return ndvi
+
+
+def clip_image_to_aoi(
+    image_array: np.ndarray,
+    meta: Dict[str, Any],
+    aoi_geojson_str: Optional[str]
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """
+    Clip a (H, W, C) image array to the bounding box of an AOI polygon.
+    
+    Steps:
+    1. Parse aoi_geojson_str as dict
+    2. Extract geometry (type: Polygon or Feature with geometry)
+    3. Create shapely polygon from coordinates
+    4. Reproject polygon from EPSG:4326 to meta['crs'] using pyproj Transformer
+       pyproj.Transformer.from_crs('EPSG:4326', meta['crs'], always_xy=True)
+    5. Use rasterio.mask.mask() with [reprojected_polygon], crop=True, all_touched=True
+       NOTE: rasterio.mask.mask expects (C, H, W) format — transpose before, transpose back after
+    6. Update meta: width, height, transform from the mask output
+    7. Return (clipped_array_HWC, updated_meta)
+    
+    If aoi_geojson_str is None or empty string: return (image_array, meta) unchanged.
+    If reprojection fails: log warning and return original (graceful degradation).
+    """
+    if not aoi_geojson_str or not aoi_geojson_str.strip():
+        return image_array, meta
+        
+    try:
+        aoi_data = json.loads(aoi_geojson_str)
+        # Extract geometry
+        geom_dict = aoi_data.get('geometry', aoi_data) if aoi_data.get('type') == 'Feature' else aoi_data
+        if 'features' in geom_dict: # FeatureCollection
+            geom_dict = geom_dict['features'][0]['geometry']
+            
+        geom = shape(geom_dict)
+        
+        # Reproject from EPSG:4326 to target CRS
+        transformer = Transformer.from_crs("EPSG:4326", meta['crs'], always_xy=True)
+        reprojected_geom = shapely_transform(transformer.transform, geom)
+        
+        # Write array to memory file to use rasterio.mask
+        # image_array is (H, W, C). rasterio expects (C, H, W)
+        image_chw = np.transpose(image_array, (2, 0, 1))
+        
+        with MemoryFile() as memfile:
+            # We must use proper dtype and count in the memory file based on the array
+            temp_meta = meta.copy()
+            temp_meta.update({
+                "driver": "GTiff",
+                "count": image_chw.shape[0],
+                "dtype": str(image_chw.dtype)
+            })
+            with memfile.open(**temp_meta) as dataset:
+                dataset.write(image_chw)
+                
+                # Apply mask
+                out_image, out_transform = rasterio.mask.mask(
+                    dataset,
+                    [reprojected_geom],
+                    crop=True,
+                    all_touched=True
+                )
+                
+        out_meta = meta.copy()
+        out_meta.update({
+            "height": out_image.shape[1],
+            "width": out_image.shape[2],
+            "transform": out_transform
+        })
+        
+        # Transpose back to (H, W, C)
+        out_image_hwc = np.transpose(out_image, (1, 2, 0))
+        return out_image_hwc, out_meta
+        
+    except Exception as e:
+        print(f"Warning: Failed to clip image to AOI. Error: {e}. Proceeding with full image.")
+        return image_array, meta
+
+
+def create_aoi_pixel_mask(
+    image_shape: tuple,
+    meta: Dict[str, Any],
+    aoi_geojson_str: Optional[str]
+) -> np.ndarray:
+    """
+    Burn AOI polygon into a binary numpy array matching image_shape (H, W).
+    Returns array with 1 inside AOI polygon, 0 outside.
+    Uses rasterio.features.geometry_mask() with invert=True.
+    Reprojects AOI to image CRS same as clip_image_to_aoi.
+    If aoi_geojson_str is None: return np.ones(image_shape) — all pixels valid.
+    """
+    if not aoi_geojson_str or not aoi_geojson_str.strip():
+        return np.ones(image_shape[:2], dtype=np.uint8)
+        
+    try:
+        aoi_data = json.loads(aoi_geojson_str)
+        geom_dict = aoi_data.get('geometry', aoi_data) if aoi_data.get('type') == 'Feature' else aoi_data
+        if 'features' in geom_dict:
+            geom_dict = geom_dict['features'][0]['geometry']
+            
+        geom = shape(geom_dict)
+        
+        transformer = Transformer.from_crs("EPSG:4326", meta['crs'], always_xy=True)
+        reprojected_geom = shapely_transform(transformer.transform, geom)
+        
+        mask = rasterio.features.geometry_mask(
+            [reprojected_geom],
+            out_shape=image_shape[:2],
+            transform=meta['transform'],
+            invert=True,
+            all_touched=True
+        )
+        return mask.astype(np.uint8)
+        
+    except Exception as e:
+        print(f"Warning: Failed to create AOI pixel mask. Error: {e}. Returning all ones mask.")
+        return np.ones(image_shape[:2], dtype=np.uint8)

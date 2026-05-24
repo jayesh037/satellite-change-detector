@@ -1,7 +1,7 @@
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, Union
+from typing import Dict, Any, Union, Optional
 
 import torch
 import numpy as np
@@ -10,12 +10,12 @@ from tqdm import tqdm
 # Add the project root to the python path to allow absolute imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline.preprocess import load_sentinel2_bands, align_images, compute_ndvi
+from pipeline.preprocess import load_sentinel2_bands, align_images, compute_ndvi, clip_image_to_aoi, create_aoi_pixel_mask
 from pipeline.tiling import tile_image_pair
 from pipeline.stitch import stitch_patches
 from pipeline.postprocess import postprocess
 from pipeline.gis import save_geotiff, mask_to_geojson, compute_total_change_area
-from ml.model import SiameseUNet
+from ml.model import ChangeFormer
 
 
 def run_inference(
@@ -28,7 +28,8 @@ def run_inference(
     batch_size: int = 8,
     prob_threshold: float = 0.3,
     min_area: int = 500,
-    ndvi_threshold: float = 0.15
+    ndvi_threshold: float = 0.15,
+    aoi_geojson: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Runs the full end-to-end inference pipeline for satellite change detection.
@@ -57,6 +58,7 @@ def run_inference(
         prob_threshold (float): Threshold to binarize predictions. Defaults to 0.3.
         min_area (int): Minimum pixel area for connected components. Defaults to 500.
         ndvi_threshold (float): Minimum NDVI difference to keep a change. Defaults to 0.15.
+        aoi_geojson (Optional[str]): GeoJSON string representing the Area of Interest polygon.
 
     Returns:
         Dict[str, Any]: A dictionary containing:
@@ -66,7 +68,6 @@ def run_inference(
     """
     t1_folder = Path(t1_folder)
     t2_folder = Path(t2_folder)
-    checkpoint_path = Path(checkpoint_path)
     output_dir = Path(output_dir)
     
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -75,6 +76,13 @@ def run_inference(
     img1, meta1, crs1 = load_sentinel2_bands(t1_folder)
     img2, meta2, crs2 = load_sentinel2_bands(t2_folder)
     
+    if aoi_geojson is not None and aoi_geojson.strip() != '':
+        img1, meta1 = clip_image_to_aoi(img1, meta1, aoi_geojson)
+        img2, meta2 = clip_image_to_aoi(img2, meta2, aoi_geojson)
+        print(f"AOI clipping applied. Clipped image shape: {img1.shape}")
+    else:
+        print("No AOI provided — processing full tile")
+        
     print("Aligning images...")
     img1_aligned, meta1_aligned, img2_aligned, meta2_aligned = align_images(img1, meta1, img2, meta2)
     
@@ -98,18 +106,26 @@ def run_inference(
     
     # The model was trained on 3-channel RGB (LEVIR-CD). 
     # Sentinel-2 channels: B02(Blue)=0, B03(Green)=1, B04(Red)=2
-    model = SiameseUNet(in_channels=3).to(device)
+    # If checkpoint_path is None, initialize with pretrained encoder weights
+    pretrained = checkpoint_path is None
+    model = ChangeFormer(in_channels=3, pretrained=pretrained).to(device)
     
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Model checkpoint not found at {checkpoint_path}")
+    if checkpoint_path is not None:
+        checkpoint_path = Path(checkpoint_path)
+        if not checkpoint_path.exists():
+            raise FileNotFoundError(f"Model checkpoint not found at {checkpoint_path}")
+            
+        checkpoint = torch.load(checkpoint_path, map_location=device)
         
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    
-    # Handle the state dict cleanly whether it was saved directly or inside a dictionary mapping
-    if "model_state_dict" in checkpoint:
-        model.load_state_dict(checkpoint["model_state_dict"])
-    else:
-        model.load_state_dict(checkpoint)
+        # Handle the state dict cleanly whether it was saved directly or inside a dictionary mapping
+        if "model_state_dict" in checkpoint:
+            state_dict = checkpoint["model_state_dict"]
+        else:
+            state_dict = checkpoint
+            
+        # Strip '_orig_mod.' prefix for torch.compile compatibility
+        state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
+        model.load_state_dict(state_dict)
         
     model.eval()
     
@@ -153,6 +169,10 @@ def run_inference(
     print("Stitching patches...")
     raw_mask = stitch_patches(stitched_patches, image_shape, patch_size=patch_size, overlap=overlap)
     
+    if aoi_geojson is not None and aoi_geojson.strip() != '':
+        aoi_mask = create_aoi_pixel_mask(raw_mask.shape, meta1_aligned, aoi_geojson)
+        raw_mask = raw_mask * aoi_mask
+        
     print("Post-processing mask...")
     final_mask = postprocess(
         mask=raw_mask,

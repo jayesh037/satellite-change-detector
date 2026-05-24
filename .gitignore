@@ -28,4 +28,20 @@ venv/
 Thumbs.db
 
 # Logs
-*.log
+*.log.env
+configs/config.yaml
+# Sensitive config
+configs/config.yaml
+
+# Large output files
+outputs/tci/
+outputs/indices/
+mlflow.db
+*.db
+
+# Virtual env
+.venv/
+
+# Temp scripts
+rewrite_frontend.py
+prompt.txt

@@ -21,6 +21,9 @@ class DetectionRequest(BaseModel):
     t2_folder: str = Field(..., description="Path to the T2 (after) Sentinel-2 images folder")
     t1_date: Optional[date] = Field(None, description="Date of the T1 images")
     t2_date: Optional[date] = Field(None, description="Date of the T2 images")
+    aoi_geojson: Optional[str] = None
+    recipient_email: Optional[str] = None
+    alert_threshold_km2: Optional[float] = 1.0
 
 
 class DetectionResponse(BaseModel):
@@ -49,6 +52,48 @@ class AlertResponse(BaseModel):
     message: str
     triggered_at: datetime
     acknowledged: bool
+
+    class Config:
+        from_attributes = True
+
+class SceneSearchRequest(BaseModel):
+    tile_id: str = "T43PGQ"
+    date_from: str          # "YYYY-MM-DD"
+    date_to: str
+    max_cloud_cover: float = 20.0
+
+class SceneResult(BaseModel):
+    scene_id: str
+    title: str
+    date: str
+    cloud_cover: float
+    tile: str
+    download_id: str
+    bbox: list[float]
+    size_mb: float
+
+class SceneSearchResponse(BaseModel):
+    scenes: list[SceneResult]
+    total: int
+
+class DownloadRequest(BaseModel):
+    download_id: str
+    title: str
+    year: str               # e.g. "2026"
+
+class UserRegister(BaseModel):
+    username: str
+    email: str
+    password: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+class UserResponse(BaseModel):
+    user_id: int
+    username: str
+    email: str
 
     class Config:
         from_attributes = True

@@ -14,7 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from ml.dataset import LEVIRDataset
-from ml.model import SiameseUNet
+from ml.model import ChangeFormer
 
 
 @torch.no_grad()
@@ -213,13 +213,25 @@ def main() -> None:
         
     # Setup dataset and dataloader
     config_path = "configs/config.yaml"
-    val_dataset = LEVIRDataset(split="val", config_path=config_path)
+    try:
+        import yaml
+        with open(config_path, "r") as f:
+            config = yaml.safe_load(f) or {}
+    except FileNotFoundError:
+        config = {}
+        
+    dataset_type = config.get("training", {}).get("dataset_type", "levir")
+    val_dataset = get_dataset(dataset_type=dataset_type, split="val", config_path=config_path)
     val_loader = DataLoader(val_dataset, batch_size=8, shuffle=False, num_workers=4, pin_memory=True)
     
     # Setup model and load weights
-    model = SiameseUNet(in_channels=3).to(device)
+    model = ChangeFormer(in_channels=3).to(device)
     checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    
+    state_dict = checkpoint["model_state_dict"]
+    state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
+    model.load_state_dict(state_dict)
+    
     print(f"Loaded checkpoint from epoch {checkpoint.get('epoch', 'unknown')} with Val IoU {checkpoint.get('val_iou', 'unknown'):.4f}")
     
     # Ensure outputs directory exists

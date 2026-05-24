@@ -104,3 +104,62 @@ class BCEDiceLoss(nn.Module):
         dice = self.dice_loss(pred_probs, target)
         
         return (self.bce_weight * bce) + (self.dice_weight * dice)
+
+
+class MaskedBCEDiceLoss(nn.Module):
+    """
+    Masked version of Combined Binary Cross Entropy (BCE) and Dice Loss.
+    
+    This loss function ignores uncertain pixels where the mask value is 0.
+    
+    Attributes:
+        bce_weight (float): Weight for the BCE loss component.
+        dice_weight (float): Weight for the Dice loss component.
+        bce_loss (nn.BCEWithLogitsLoss): The BCE loss module (no reduction).
+    """
+
+    def __init__(self, bce_weight: float = 0.5, dice_weight: float = 0.5, smooth: float = 1e-6) -> None:
+        """
+        Initializes the MaskedBCEDiceLoss module.
+        """
+        super().__init__()
+        self.bce_weight = bce_weight
+        self.dice_weight = dice_weight
+        self.smooth = smooth
+        # Reduction set to none so we can apply the mask
+        self.bce_loss = nn.BCEWithLogitsLoss(reduction='none')
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        """
+        Computes the combined BCE and Dice Loss focusing only on masked pixels.
+        
+        Args:
+            pred (torch.Tensor): Logit predictions from the model (B, C, H, W).
+            target (torch.Tensor): Ground truth labels (B, C, H, W).
+            mask (torch.Tensor): Binary mask where 1 = certain, 0 = uncertain (B, C, H, W).
+            
+        Returns:
+            torch.Tensor: The computed combined loss scalar.
+        """
+        # 1. Masked BCE
+        bce = self.bce_loss(pred, target)
+        bce = (bce * mask).sum() / (mask.sum() + self.smooth)
+        
+        # 2. Masked Dice
+        pred_probs = torch.sigmoid(pred)
+        
+        # Apply mask to pred and target before flatten
+        pred_probs_masked = pred_probs * mask
+        target_masked = target * mask
+        
+        pred_flat = pred_probs_masked.contiguous().view(-1)
+        target_flat = target_masked.contiguous().view(-1)
+        
+        intersection = (pred_flat * target_flat).sum()
+        
+        dice_score = (2.0 * intersection + self.smooth) / (
+            pred_flat.sum() + target_flat.sum() + self.smooth
+        )
+        dice = 1.0 - dice_score
+        
+        return (self.bce_weight * bce) + (self.dice_weight * dice)

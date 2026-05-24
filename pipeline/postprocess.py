@@ -110,9 +110,9 @@ def postprocess(
         np.ndarray: The final cleaned binary mask (np.uint8).
     """
     # Hardcode values to ensure they are used
-    prob_threshold = 0.3
-    min_area = 5
-    ndvi_threshold = 0.02
+    prob_threshold = 0.7
+    min_area = 100
+    ndvi_threshold = 0.1
     
     print(f"DEBUG: Using parameters - prob_threshold: {prob_threshold}, ndvi_threshold: {ndvi_threshold}, min_area: {min_area}")
     print(f"DEBUG: raw mask before threshold - max: {mask.max():.4f}, min: {mask.min():.4f}, mean: {mask.mean():.4f}")

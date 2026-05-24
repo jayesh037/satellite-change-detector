@@ -10,14 +10,26 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader
-from torch.cuda.amp import GradScaler, autocast
+from torch.utils.data import DataLoader, Dataset
+from torch.amp import autocast
 import mlflow
 from tqdm import tqdm
 
-from ml.dataset import LEVIRDataset
-from ml.model import SiameseUNet
+from ml.dataset import LEVIRDataset, OSCDDataset
+from ml.model import ChangeFormer
 from ml.losses import BCEDiceLoss
+
+
+def get_dataset(dataset_type: str, split: str, config_path: str) -> Dataset:
+    """
+    Returns the appropriate dataset based on the dataset_type.
+    """
+    if dataset_type.lower() == 'levir':
+        return LEVIRDataset(split=split, config_path=config_path)
+    elif dataset_type.lower() == 'oscd':
+        return OSCDDataset(split=split, config_path=config_path)
+    else:
+        raise ValueError(f"Unknown dataset_type: {dataset_type}")
 
 
 def calculate_metrics(pred: torch.Tensor, target: torch.Tensor, threshold: float = 0.5) -> Tuple[float, float]:
@@ -56,8 +68,9 @@ def train_epoch(
     dataloader: DataLoader, 
     criterion: nn.Module, 
     optimizer: optim.Optimizer, 
-    scaler: GradScaler, 
-    device: torch.device
+    scaler, 
+    device: torch.device,
+    use_mask=False
 ) -> Tuple[float, float, float]:
     """
     Trains the model for one epoch.
@@ -84,9 +97,12 @@ def train_epoch(
 
         optimizer.zero_grad(set_to_none=True)
 
-        with autocast():
+        with autocast("cuda"):
             pred = model(t1, t2)
-            loss = criterion(pred, label)
+            if use_mask and 'mask' in batch:
+                loss = criterion(pred, label, batch['mask'].to(device))
+            else:
+                loss = criterion(pred, label)
 
         scaler.scale(loss).backward()
         scaler.step(optimizer)
@@ -109,7 +125,8 @@ def validate_epoch(
     model: nn.Module, 
     dataloader: DataLoader, 
     criterion: nn.Module, 
-    device: torch.device
+    device: torch.device,
+	use_mask=False
 ) -> Tuple[float, float, float]:
     """
     Validates the model for one epoch.
@@ -132,7 +149,7 @@ def validate_epoch(
         t2 = batch["t2"].to(device)
         label = batch["label"].to(device)
 
-        with autocast():
+        with autocast("cuda"):
             pred = model(t1, t2)
             loss = criterion(pred, label)
 
@@ -170,51 +187,103 @@ def main() -> None:
     learning_rate = float(train_cfg.get("learning_rate", 1e-4))
     early_stopping_patience = train_cfg.get("early_stopping_patience", 10)
     
+    dataset_type = train_cfg.get("dataset_type", "oscd")
+    
+    model_cfg = config.get("model", {})
+    pretrained = model_cfg.get("pretrained", True)
+    model_name = model_cfg.get("name", "changeformer")
+    encoder_name = model_cfg.get("encoder", "segformer-b0")
+    
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-
-    # Set up datasets and dataloaders
-    train_dataset = LEVIRDataset(split="train", config_path=config_path)
-    val_dataset = LEVIRDataset(split="val", config_path=config_path)
-
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
-
-    # Initialize model, loss, optimizer
-    model = SiameseUNet(in_channels=3).to(device)
-    criterion = BCEDiceLoss(bce_weight=0.5, dice_weight=0.5)
-    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
-    scaler = GradScaler()
 
     # Checkpoint directory
     checkpoint_dir = Path("checkpoints")
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     best_model_path = checkpoint_dir / "best_model.pth"
+    
+    is_finetune = dataset_type.lower() == 'pseudo'
+    use_mask = is_finetune
+
+    if is_finetune:
+        pseudo_cfg = config.get("pseudo", {})
+        learning_rate = float(pseudo_cfg.get("finetune_lr", 1e-5))
+        num_epochs = pseudo_cfg.get("finetune_epochs", 10)
+        best_model_path = Path(pseudo_cfg.get("checkpoint_output", "checkpoints/best_model_finetuned.pth"))
+        
+        train_dataset = get_dataset(dataset_type=dataset_type, split="train", config_path=config_path)
+        # For pseudo fine-tuning we just validate on the train dataset or skip val logic
+        val_dataset = train_dataset
+        
+        criterion = MaskedBCEDiceLoss(bce_weight=0.5, dice_weight=0.5)
+        
+        print(f"Running fine-tuning mode. LR: {learning_rate}, Epochs: {num_epochs}")
+    else:
+        train_dataset = get_dataset(dataset_type=dataset_type, split="train", config_path=config_path)
+        val_dataset = get_dataset(dataset_type=dataset_type, split="val", config_path=config_path)
+        criterion = BCEDiceLoss(bce_weight=0.5, dice_weight=0.5)
+
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+
+    # Initialize model, loss, optimizer
+    model = ChangeFormer(in_channels=3, pretrained=pretrained).to(device)
+
+    # If fine-tuning, load the best OSCD model
+    if is_finetune:
+        load_path = model_cfg.get("checkpoint_path", "checkpoints/best_model.pth")
+        if os.path.exists(load_path):
+            print(f"Loading pretrained weights for fine-tuning from {load_path}")
+            checkpoint = torch.load(load_path, map_location=device)
+            state_dict = checkpoint.get("model_state_dict", checkpoint)
+            state_dict = {k.replace('_orig_mod.', ''): v for k, v in state_dict.items()}
+            model.load_state_dict(state_dict)
+        else:
+            print(f"Warning: Checkpoint {load_path} not found. Fine-tuning from scratch!")
+
+    if sys.platform.startswith("linux") and int(torch.__version__.split(".")[0]) >= 2:
+        try:
+            print("Compiling model with torch.compile()...")
+            model = torch.compile(model)
+        except Exception as e:
+            print(f"Warning: torch.compile failed ({e}). Proceeding without compilation.")
+
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=num_epochs, eta_min=1e-6)
+    scaler = torch.amp.GradScaler('cuda')
 
     # Training state variables
     best_val_iou = 0.0
     patience_counter = 0
 
     # Initialize MLflow
-    mlflow.set_experiment("LEVIR_CD_Siamese_UNet")
+    mlflow.set_experiment(f"{dataset_type.upper()}_CD_{model_name.capitalize()}")
 
     with mlflow.start_run():
-        mlflow.log_params({
+        mlflow_params = {
+            "model": model_name,
+            "encoder": encoder_name,
+            "pretrained": pretrained,
+            "dataset_type": dataset_type,
             "batch_size": batch_size,
             "learning_rate": learning_rate,
             "epochs": num_epochs,
             "optimizer": "Adam",
             "scheduler": "CosineAnnealingLR",
-            "loss": "BCEDiceLoss"
-        })
+            "loss": "MaskedBCEDiceLoss" if is_finetune else "BCEDiceLoss"
+        }
+        
+        if is_finetune:
+            mlflow.set_tags({'mode': 'finetune', 'base_dataset': 'oscd', 'finetune_data': 'pseudo_t43pgq'})
+            
+        mlflow.log_params(mlflow_params)
 
         for epoch in range(1, num_epochs + 1):
             print(f"\nEpoch {epoch}/{num_epochs}")
             
             # Train and Validate
-            train_loss, train_iou, train_f1 = train_epoch(model, train_loader, criterion, optimizer, scaler, device)
-            val_loss, val_iou, val_f1 = validate_epoch(model, val_loader, criterion, device)
+            train_loss, train_iou, train_f1 = train_epoch(model, train_loader, criterion, optimizer, scaler, device, use_mask=use_mask)
+            val_loss, val_iou, val_f1 = validate_epoch(model, val_loader, criterion, device, use_mask=use_mask)
             
             # Step the scheduler
             scheduler.step()

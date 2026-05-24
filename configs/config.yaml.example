@@ -1,0 +1,67 @@
+model:
+  name: changeformer
+  in_channels: 3
+  encoder: efficientnet-b0
+  pretrained: true
+  checkpoint_path: checkpoints/best_model.pth
+
+training:
+  batch_size: 8
+  patch_size: 256
+  epochs: 50
+  learning_rate: 0.0001
+  mixed_precision: true
+  early_stopping_patience: 10
+  dataset_type: oscd
+
+data:
+  dataset_type: pseudo
+  oscd_root: data/OSCD
+  levir_root: data/LEVIR-CD
+  sentinel2_t1: data/ISRO/2021/S2A_MSIL2A_20210314T050651_N0214_R019_T43PGQ_20210314T073831.SAFE/GRANULE/L2A_T43PGQ_A029903_20210314T051944/IMG_DATA/R10m
+  sentinel2_t2: data/ISRO/2023/S2A_MSIL2A_20230314T050651_N0509_R019_T43PGQ_20230314T090502.SAFE/GRANULE/L2A_T43PGQ_A040342_20230314T051815/IMG_DATA/R10m
+
+inference:
+  overlap: 32
+  threshold: 0.3
+  min_area: 5
+  ndvi_threshold: 0.02
+
+postprocess:
+  alert_threshold_km2: 0.25
+
+database:
+  url: postgresql://postgres:postgres@localhost:5432/satchange
+
+redis:
+  url: redis://localhost:6379/0
+
+celery:
+  broker_url: redis://localhost:6379/0
+
+output:
+  dir: outputs
+alerts:
+  threshold_km2: 0.25
+  email_enabled: true
+  smtp_host: "smtp.gmail.com"
+  smtp_port: 587
+  smtp_user: "lunar.brsh@gmail.com"
+  smtp_password: "YOUR_SMTP_APP_PASSWORD"
+  sender_name: "Satellite Change Detector"
+
+pseudo:
+  t1_folder: "data/ISRO/2021/S2A_MSIL2A_20210314T050651_N0214_R019_T43PGQ_20210314T073831.SAFE/GRANULE/L2A_T43PGQ_A029903_20210314T051944/IMG_DATA/R10m"
+  t2_folder: "data/ISRO/2023/S2A_MSIL2A_20230314T050651_N0509_R019_T43PGQ_20230314T090502.SAFE/GRANULE/L2A_T43PGQ_A040342_20230314T051815/IMG_DATA/R10m"
+  pseudo_label_path: "data/pseudo_labels/t43pgq_pseudo_label.tif"
+  dataset_type: pseudo
+  finetune_lr: 0.00001
+  finetune_epochs: 10
+  checkpoint_output: "checkpoints/best_model_finetuned.pth"
+  
+copernicus:
+  client_id: "YOUR_COPERNICUS_CLIENT_ID"
+  client_secret: "YOUR_COPERNICUS_CLIENT_SECRET"
+  stac_url: "https://catalogue.dataspace.copernicus.eu/stac"
+  token_url: "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token"
+  download_url: "https://zipper.dataspace.copernicus.eu/download"

@@ -1,5 +1,7 @@
 import os
 import sys
+from dotenv import load_dotenv
+load_dotenv()
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -25,8 +27,12 @@ async def lifespan(app: FastAPI):
     # Ensure outputs directory exists
     os.makedirs("outputs", exist_ok=True)
     
-    # Database connection check removed. Running in memory mode.
-    print("Database connection check disabled. Running in memory mode.")
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        print("Successfully connected to the database.")
+    except Exception as e:
+        print(f"WARNING: Failed to connect to the database. Running anyway. Error: {e}")
         
     yield
     
@@ -54,6 +60,9 @@ app.add_middleware(
 
 # Mount outputs directory for static file serving
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
+app.mount("/tci", StaticFiles(directory="outputs/tci"), name="tci")
+app.mount("/indices", StaticFiles(directory="outputs/indices"), name="indices")
+app.mount("/timeseries", StaticFiles(directory="outputs/timeseries"), name="timeseries")
 
 # Register routes under the /api/v1 prefix
 app.include_router(router, prefix="/api/v1")

@@ -4,39 +4,92 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Satellite Change Detection</title>
+    <link rel="icon" href="data:,">
     
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <!-- Leaflet Draw CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css" />
     
+    <!-- Leaflet SideBySide CDN -->
+    <script src="https://unpkg.com/leaflet-side-by-side@2.0.0/leaflet-side-by-side.js"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
     <style>
         body {
             margin: 0;
             padding: 0;
-            display: flex;
             height: 100vh;
+            width: 100vw;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: #121212;
             color: #e0e0e0;
             overflow: hidden;
+            position: relative;
         }
+
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: #000;
+            z-index: 1;
+        }
+
+        #hamburger {
+            position: absolute;
+            top: 15px;
+            left: 15px;
+            z-index: 2000;
+            background: #252525;
+            border: 1px solid #444;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+        #hamburger:hover {
+            background: #333;
+        }
+
         #sidebar {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            left: 0;
             width: 350px;
             background-color: #1e1e1e;
             padding: 20px;
+            padding-top: 60px; /* space for hamburger */
             box-shadow: 2px 0 5px rgba(0,0,0,0.5);
             display: flex;
             flex-direction: column;
             gap: 15px;
             z-index: 1000;
             overflow-y: auto;
+            transform: translateX(0);
+            transition: transform 0.3s ease;
+            box-sizing: border-box;
         }
-        #map {
-            flex-grow: 1;
-            background-color: #000;
-            z-index: 1;
+        
+        #sidebar.closed {
+            transform: translateX(-100%);
         }
+
+        @media (max-width: 768px) {
+            #sidebar {
+                transform: translateX(-100%);
+            }
+            #sidebar.open {
+                transform: translateX(0);
+            }
+        }
+
         h2 {
             margin-top: 0;
             font-size: 1.5rem;
@@ -53,13 +106,14 @@
             font-size: 0.9rem;
             color: #b0b0b0;
         }
-        input[type="text"] {
+        input[type="text"], input[type="date"], select {
             background-color: #2d2d2d;
             border: 1px solid #444;
             color: #fff;
             padding: 8px;
             border-radius: 4px;
             font-size: 0.9rem;
+            box-sizing: border-box;
         }
         button {
             background-color: #007acc;
@@ -111,21 +165,362 @@
             border-radius: 3px;
             font-size: 0.85rem;
         }
-    </style>
+        .scene-card {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            position: relative;
+        }
+        .scene-card button {
+            padding: 5px 10px;
+            font-size: 0.8rem;
+            margin-top: 5px;
+            width: 100%;
+        }
+        .progress-bar-container {
+            width: 100%;
+            height: 6px;
+            background-color: #444;
+            border-radius: 3px;
+            margin-top: 5px;
+            overflow: hidden;
+            display: none;
+        }
+        .progress-bar {
+            height: 100%;
+            background-color: #4caf50;
+            width: 0%;
+            transition: width 0.2s ease;
+        }
+        .loading-spinner {
+            border: 3px solid rgba(255,255,255,0.1);
+            border-top: 3px solid #007acc;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            margin: 10px auto;
+            display: none;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .map-type-switcher {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+            display: flex;
+            background: #252525;
+            border-radius: 4px;
+            border: 1px solid #444;
+            overflow: hidden;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+        }
+        .map-type-btn {
+            background: none;
+            border: none;
+            color: #aaa;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 0.85rem;
+            font-weight: bold;
+            border-radius: 0;
+        }
+        .map-type-btn.active {
+            background: #007acc;
+            color: white;
+        }
+        .map-type-btn:hover:not(.active) {
+            background: #333;
+        }
+
+        .layer-panel {
+            position: absolute;
+            top: 70px;
+            right: 20px;
+            z-index: 1000;
+            background: #252525;
+            border: 1px solid #444;
+            border-radius: 4px;
+            padding: 15px;
+            width: 250px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            box-sizing: border-box;
+        }
+        .layer-panel h3 {
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+            color: #fff;
+            border-bottom: 1px solid #444;
+            padding-bottom: 5px;
+        }
+        .layer-btn {
+            display: block;
+            width: 100%;
+            text-align: left;
+            background: none;
+            border: none;
+            color: #aaa;
+            padding: 8px;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .layer-btn:hover { background: #333; }
+        .layer-btn.active {
+            background: #444;
+            color: #4caf50;
+            border-left: 3px solid #4caf50;
+        }
+
+        .toggle-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 40px;
+            height: 20px;
+        }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #444;
+            transition: .2s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 14px; width: 14px;
+            left: 3px; bottom: 3px;
+            background-color: white;
+            transition: .2s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: #007acc; }
+        input:checked + .slider:before { transform: translateX(20px); }
+
+        #timeline-panel {
+            position: absolute;
+            bottom: -220px;
+            left: 0;
+            right: 0;
+            height: 220px;
+            background-color: #1e1e1e;
+            border-top: 1px solid #333;
+            transition: bottom 0.3s ease;
+            z-index: 1000;
+            padding: 10px 20px;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+        }
+        #timeline-panel.open {
+            bottom: 0;
+        }
+        #timeline-toggle {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 1001;
+            background-color: #252525;
+            border: 1px solid #444;
+            padding: 8px 15px;
+            border-radius: 4px;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+            transition: bottom 0.3s ease;
+        }
+        #timeline-toggle:hover {
+            background-color: #333;
+        }
+        #timeline-toggle.open {
+            bottom: 240px;
+        }
+        .chart-container {
+            position: relative;
+            flex-grow: 1;
+            width: 100%;
+        }
+
+        /* Modal Styles */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 3000;
+        }
+        .modal {
+            background: #1e1e1e;
+            border: 1px solid #444;
+            border-radius: 8px;
+            width: 350px;
+            padding: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .modal-tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #333;
+        }
+        .modal-tab {
+            flex: 1;
+            text-align: center;
+            padding: 10px;
+            cursor: pointer;
+            color: #888;
+            font-weight: bold;
+        }
+        .modal-tab.active {
+            color: #fff;
+            border-bottom: 2px solid #007acc;
+        }
+        .modal-form { display: none; }
+        .modal-form.active { display: block; }
+        .user-profile {
+            background: #252525;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            margin-bottom: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logout-btn {
+            background: none;
+            border: none;
+            color: #f44336;
+            cursor: pointer;
+            padding: 0;
+            font-size: 0.85rem;
+        }
+        .logout-btn:hover { text-decoration: underline; background: none; }
+    
+        .toast {
+            visibility: hidden;
+            min-width: 250px;
+            margin-left: -125px;
+            background-color: #f44336;
+            color: #fff;
+            text-align: center;
+            border-radius: 4px;
+            padding: 16px;
+            position: fixed;
+            z-index: 4000;
+            left: 50%;
+            bottom: 30px;
+            font-size: 0.9rem;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        }
+        .toast.show {
+            visibility: visible;
+            -webkit-animation: fadein 0.5s, fadeout 0.5s 2.5s;
+            animation: fadein 0.5s, fadeout 0.5s 2.5s;
+        }
+        @-webkit-keyframes fadein {
+            from {bottom: 0; opacity: 0;} 
+            to {bottom: 30px; opacity: 1;}
+        }
+        @keyframes fadein {
+            from {bottom: 0; opacity: 0;}
+            to {bottom: 30px; opacity: 1;}
+        }
+        @-webkit-keyframes fadeout {
+            from {bottom: 30px; opacity: 1;} 
+            to {bottom: 0; opacity: 0;}
+        }
+        @keyframes fadeout {
+            from {bottom: 30px; opacity: 1;}
+            to {bottom: 0; opacity: 0;}
+        }
+</style>
 </head>
 <body>
 
+    <div id="toast" class="toast"></div>
+
+    <div class="modal-overlay" id="auth-modal" style="display: none;">
+        <div class="modal">
+            <h2 style="border: none; margin-bottom: 5px; text-align: center;">Welcome</h2>
+            <div class="modal-tabs">
+                <div class="modal-tab active" id="tab-login">Login</div>
+                <div class="modal-tab" id="tab-register">Register</div>
+            </div>
+            
+            <div id="form-login" class="modal-form active">
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label>Email</label>
+                    <input type="text" id="login-email" placeholder="user@example.com">
+                </div>
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="••••••••" style="background-color: #2d2d2d; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; width: 100%;">
+                </div>
+                <button id="btn-login" style="width: 100%;">Login</button>
+                <div id="login-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; text-align: center; display: none;"></div>
+            </div>
+
+            <div id="form-register" class="modal-form">
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label>Username</label>
+                    <input type="text" id="reg-username" placeholder="johndoe">
+                </div>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label>Email</label>
+                    <input type="text" id="reg-email" placeholder="user@example.com">
+                </div>
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label>Password</label>
+                    <input type="password" id="reg-password" placeholder="••••••••" style="background-color: #2d2d2d; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; width: 100%;">
+                    <div id="reg-password-rules" style="font-size: 0.75rem; color: #aaa; margin-top: 5px; line-height: 1.4;">
+                        <span id="rule-length">❌ Min 6 characters</span><br>
+                        <span id="rule-number">❌ 1 number</span><br>
+                        <span id="rule-uppercase">❌ 1 uppercase letter</span>
+                    </div>
+                </div>
+                <button id="btn-register" style="width: 100%;">Register</button>
+                <div id="reg-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; text-align: center; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <button id="hamburger">☰</button>
+
     <div id="sidebar">
-        <h2>Change Detector</h2>
+        <h2 style="display: flex; justify-content: space-between; align-items: center;">
+            Change Detector
+            <div id="auth-status" style="display: none; font-size: 0.9rem; font-weight: normal; background: #2d2d2d; padding: 4px 8px; border-radius: 4px; color: #4caf50;">
+                <span id="auth-username"></span>
+                <button class="logout-btn" id="btn-logout" style="margin-left: 10px;">Logout</button>
+            </div>
+        </h2>
         
         <div class="form-group">
             <label for="t1-folder">T1 Folder Path (Before)</label>
-            <input type="text" id="t1-folder" placeholder="e.g. data/t1" value="data/t1">
+            <input type="text" id="t1-folder" placeholder="e.g. data/t1" value="">
         </div>
         
         <div class="form-group">
             <label for="t2-folder">T2 Folder Path (After)</label>
-            <input type="text" id="t2-folder" placeholder="e.g. data/t2" value="data/t2">
+            <input type="text" id="t2-folder" placeholder="e.g. data/t2" value="">
         </div>
 
         <button id="draw-btn">Draw AOI on Map</button>
@@ -133,19 +528,154 @@
 
         <div class="panel">
             <h3>Status</h3>
-            <div id="status-display">Waiting for input...</div>
+            <div id="status-display">Ready.</div>
             <div id="task-id" style="font-size: 0.8rem; color: #888; margin-top: 5px;"></div>
         </div>
 
         <div class="panel">
-            <h3>Alerts <span id="alert-count" style="background: #f44336; color: white; border-radius: 50%; padding: 2px 8px; font-size: 0.8rem; display: none;">0</span></h3>
+            <h3>
+                <span>Alerts <span id="alert-count" style="background: #f44336; color: white; border-radius: 50%; padding: 2px 8px; font-size: 0.8rem; display: none;">0</span></span>
+                <button id="clear-alerts-btn" style="background: none; border: 1px solid #444; color: #aaa; font-size: 0.75rem; padding: 4px 8px; border-radius: 3px; cursor: pointer; display: none;">Clear All</button>
+            </h3>
             <div id="alerts-container">
                 <div style="color: #888; font-size: 0.9rem;">No alerts yet.</div>
+            </div>
+        </div>
+
+        <div class="panel">
+            <h3 style="cursor: pointer; margin-bottom: 0;" id="scene-search-header">
+                🛰️ Scene Search 
+                <span id="scene-search-arrow" style="float: right;">▼</span>
+            </h3>
+            <div id="scene-search-content" style="display: none; margin-top: 15px;">
+                <div class="form-group">
+                    <label for="search-tile">Tile ID</label>
+                    <input type="text" id="search-tile" value="T43PGQ">
+                </div>
+                <div class="form-group">
+                    <label for="search-date-from">Date From</label>
+                    <input type="date" id="search-date-from">
+                </div>
+                <div class="form-group">
+                    <label for="search-date-to">Date To</label>
+                    <input type="date" id="search-date-to">
+                </div>
+                <div class="form-group">
+                    <label for="search-cloud">Max Cloud Cover: <span id="search-cloud-val">20</span>%</label>
+                    <input type="range" id="search-cloud" min="0" max="100" step="5" value="20">
+                </div>
+                <button id="search-btn" style="width: 100%; margin-top: 10px;">Search Scenes</button>
+                
+                <div class="loading-spinner" id="search-spinner"></div>
+                <div id="search-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; display: none;"></div>
+                
+                <div id="search-results" style="max-height: 300px; overflow-y: auto; margin-top: 15px;">
+                    <!-- Results will be injected here -->
+                </div>
             </div>
         </div>
     </div>
 
     <div id="map"></div>
+
+    <!-- Map UI Overlays -->
+    <div class="map-type-switcher">
+        <button class="map-type-btn active" data-type="satellite">Satellite</button>
+        <button class="map-type-btn" data-type="street">Street</button>
+        <button class="map-type-btn" data-type="terrain">Terrain</button>
+    </div>
+
+    <div class="layer-panel">
+        <h3>Analytical Layers</h3>
+        
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 15px;">
+            
+            <label style="font-size: 0.9rem; color: #ccc; margin-bottom: 5px;">📅 Compare Years</label>
+            <select id="timeseries-pair-select">
+                <option value="">-- Select Year Pair --</option>
+                <option value="2019_2020">2019→2020</option>
+                <option value="2020_2021">2020→2021</option>
+                <option value="2021_2022">2021→2022</option>
+                <option value="2022_2023">2022→2023</option>
+                <option value="2023_2024">2023→2024</option>
+                <option value="2024_2025">2024→2025</option>
+                <option value="2025_2026">2025→2026</option>
+            </select>
+        </div>
+        
+        <div style="height: 1px; background: #444; margin: 5px 0 10px 0;"></div>
+
+        <div class="layer-item-container" style="display: flex; align-items: center; margin-bottom: 5px;">
+            <button class="layer-btn active" data-layer="none" style="margin-bottom: 0; width: 100%;">None (Default)</button>
+        </div>
+        <div class="layer-item-container" style="display: flex; align-items: center; margin-bottom: 5px; gap: 5px;">
+            <button class="layer-btn" data-layer="tci" style="margin-bottom: 0; flex-grow: 1;">Natural Color (TCI)</button>
+            <select class="layer-year-select" data-layer-target="tci" style="width: auto; padding: 5px;">
+                <option value="2019">2019</option>
+                <option value="2020">2020</option>
+                <option value="2021">2021</option>
+                <option value="2022">2022</option>
+                <option value="2023" selected>2023</option>
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+            </select>
+        </div>
+        <div class="layer-item-container" style="display: flex; align-items: center; margin-bottom: 5px; gap: 5px;">
+            <button class="layer-btn" data-layer="ndvi" style="margin-bottom: 0; flex-grow: 1;">Vegetation (NDVI)</button>
+            <select class="layer-year-select" data-layer-target="ndvi" style="width: auto; padding: 5px;">
+                <option value="2019">2019</option>
+                <option value="2020">2020</option>
+                <option value="2021">2021</option>
+                <option value="2022">2022</option>
+                <option value="2023" selected>2023</option>
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+            </select>
+        </div>
+        <div class="layer-item-container" style="display: flex; align-items: center; margin-bottom: 5px; gap: 5px;">
+            <button class="layer-btn" data-layer="ndwi" style="margin-bottom: 0; flex-grow: 1;">Water (NDWI)</button>
+            <select class="layer-year-select" data-layer-target="ndwi" style="width: auto; padding: 5px;">
+                <option value="2019">2019</option>
+                <option value="2020">2020</option>
+                <option value="2021">2021</option>
+                <option value="2022">2022</option>
+                <option value="2023" selected>2023</option>
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+            </select>
+        </div>
+        <div class="layer-item-container" style="display: flex; align-items: center; margin-bottom: 5px; gap: 5px;">
+            <button class="layer-btn" data-layer="ndbi" style="margin-bottom: 0; flex-grow: 1;">Urban (NDBI)</button>
+            <select class="layer-year-select" data-layer-target="ndbi" style="width: auto; padding: 5px;">
+                <option value="2019">2019</option>
+                <option value="2020">2020</option>
+                <option value="2021">2021</option>
+                <option value="2022">2022</option>
+                <option value="2023" selected>2023</option>
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+            </select>
+        </div>
+        </div>
+
+    <!-- Timeline Controls -->
+    <button id="timeline-toggle">📈 Change Timeline</button>
+    <div id="timeline-panel">
+        <h3 style="margin: 0 0 10px 0; font-size: 1rem; color: #fff; display: flex; justify-content: space-between; align-items: center;">
+            <span>Timeseries Overview</span>
+            <button id="timeline-close" style="background: none; border: none; color: #aaa; cursor: pointer; font-size: 1.2rem; padding: 0;">✕</button>
+        </h3>
+        <div id="timeline-empty-state" style="display: none; color: #888; text-align: center; margin-top: 20px; font-size: 0.9rem;">
+            No timeseries data yet — run detections first.
+        </div>
+        <div class="chart-container" id="timeline-chart-container">
+            <canvas id="timelineChart"></canvas>
+        </div>
+    </div>
 
     <!-- Leaflet JS -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -154,48 +684,79 @@
 
     <script>
         const API_BASE = "http://localhost:8000/api/v1";
-        let drawnLayer = null;
-        let pollInterval = null;
-        let geojsonLayer = null;
-
-        // Initialize Map centered on India (lat: 20, lng: 78, zoom: 5)
-        const map = L.map('map').setView([20, 78], 5);
-
-        // Add Dark Matter CartoDB tiles for a clean minimal dark UI
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-            subdomains: 'abcd',
-            maxZoom: 20
-        }).addTo(map);
-
-        // Initialize FeatureGroup to store editable layers
-        const drawnItems = new L.FeatureGroup();
-        map.addLayer(drawnItems);
-
-        // Initialize Draw Control (We hide the default UI toolbar to use our custom button)
-        const drawControl = new L.Control.Draw({
-            draw: {
-                polyline: false,
-                marker: false,
-                circlemarker: false,
-                circle: false,
-                polygon: true,
-                rectangle: true
-            },
-            edit: {
-                featureGroup: drawnItems,
-                edit: false,
-                remove: true
+        
+        // --- Sidebar Hamburger ---
+        const sidebar = document.getElementById('sidebar');
+        const hamburger = document.getElementById('hamburger');
+        
+        if (window.innerWidth <= 768) {
+            sidebar.classList.add('closed');
+        }
+        
+        hamburger.addEventListener('click', () => {
+            if (window.innerWidth <= 768) {
+                sidebar.classList.toggle('open');
+            } else {
+                sidebar.classList.toggle('closed');
             }
         });
 
-        // Trigger drawing a polygon when clicking the custom sidebar button
+        // --- Init Map ---
+        const map = L.map('map', { zoomControl: false }).setView([13.06, 77.35], 11);
+
+        // --- Base Maps ---
+        const baseMaps = {
+            satellite: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri', maxZoom: 19
+            }),
+            street: L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; OpenStreetMap contributors', maxZoom: 19
+            }),
+            terrain: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+                attribution: 'Tiles &copy; Esri', maxZoom: 19
+            })
+        };
+
+        let currentBaseMapLayer = baseMaps.satellite;
+        currentBaseMapLayer.addTo(map);
+
+        document.querySelectorAll('.map-type-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                const type = e.target.getAttribute('data-type');
+                
+                document.querySelectorAll('.map-type-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+
+                if (currentBaseMapLayer) {
+                    map.removeLayer(currentBaseMapLayer);
+                }
+                currentBaseMapLayer = baseMaps[type];
+                currentBaseMapLayer.addTo(map);
+                
+                if (geojsonLayer) geojsonLayer.bringToFront();
+                drawnItems.bringToFront();
+            });
+        });
+
+        // --- Drawing Tools ---
+        const drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+        let drawnLayer = null;
+
+        const drawControl = new L.Control.Draw({
+            draw: {
+                polyline: false, marker: false, circlemarker: false,
+                circle: false, polygon: true, rectangle: true
+            },
+            edit: { featureGroup: drawnItems, edit: false, remove: true }
+        });
+
         document.getElementById('draw-btn').addEventListener('click', () => {
             new L.Draw.Polygon(map, drawControl.options.draw.polygon).enable();
         });
 
         map.on(L.Draw.Event.CREATED, function (e) {
-            drawnItems.clearLayers(); // Only allow one AOI to be drawn at a time
+            drawnItems.clearLayers();
             drawnLayer = e.layer;
             drawnItems.addLayer(drawnLayer);
             document.getElementById('run-btn').disabled = false;
@@ -208,7 +769,397 @@
             document.getElementById('draw-btn').innerText = "Draw AOI on Map";
         });
 
-        // Run Detection Logic
+        // --- Layer Panel & Spectral Overlays ---
+        let currentAnalyticLayer = null;
+        const missingLayers = new Set();
+
+        
+        function showToast(message) {
+            const toast = document.getElementById("toast");
+            toast.innerText = message;
+            toast.className = "toast show";
+            setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+        }
+
+        function loadLayer(layerType, year) {
+            if (currentAnalyticLayer) {
+                map.removeLayer(currentAnalyticLayer);
+                currentAnalyticLayer = null;
+            }
+
+            if (layerType === 'none') {
+                updateStatus(`Ready.`, "#4caf50");
+                return;
+            }
+
+            const layerName = `${layerType}_${year}`;
+
+            updateStatus(`Loading ${layerType.toUpperCase()} layer for ${year}...`, "#ff9800");
+
+            currentAnalyticLayer = L.tileLayer(`${API_BASE}/tiles/${layerName}/{z}/{x}/{y}`, {
+                maxZoom: 19,
+                opacity: 0.7,
+                tms: false
+            }).addTo(map);
+
+            if (geojsonLayer) geojsonLayer.bringToFront();
+            drawnItems.bringToFront();
+            
+            updateStatus(`Ready.`, "#4caf50");
+        }
+
+        document.querySelectorAll('.layer-btn').forEach(btn => {
+            btn.addEventListener('click', async (e) => {
+                const layerType = e.target.getAttribute('data-layer');
+                
+                document.querySelectorAll('.layer-btn').forEach(b => b.classList.remove('active'));
+                e.target.classList.add('active');
+
+                if (layerType === 'none') {
+                    loadLayer('none');
+                    return;
+                }
+
+                const selectElement = document.querySelector(`.layer-year-select[data-layer-target="${layerType}"]`);
+                const year = selectElement ? selectElement.value : '2023';
+
+                loadLayer(layerType, year);
+            });
+        });
+
+        document.querySelectorAll('.layer-year-select').forEach(select => {
+            select.addEventListener('change', (e) => {
+                const layerType = e.target.getAttribute('data-layer-target');
+                const year = e.target.value;
+                const associatedBtn = document.querySelector(`.layer-btn[data-layer="${layerType}"]`);
+                
+                // If the associated layer button is currently active, update the map
+                if (associatedBtn && associatedBtn.classList.contains('active')) {
+                    loadLayer(layerType, year);
+                }
+            });
+        });
+
+
+        // Timeseries Pair Dropdown
+        document.getElementById('timeseries-pair-select').addEventListener('change', async (e) => {
+            const val = e.target.value;
+            if (!val) return;
+            const [y1, y2] = val.split('_');
+            
+            // Assume we can fetch area from the summary somehow, or just pass 0 if unknown
+            let area = 0;
+            try {
+                const res = await fetch(`${API_BASE}/timeseries/summary`);
+                if (res.ok) {
+                    const data = await res.json();
+                    const pair = data.results.find(r => r.y1 === y1 && r.y2 === y2);
+                    if (pair) area = pair.changed_area_km2 || 0;
+                }
+            } catch(err) {}
+            
+            await loadTimeseriesGeoJSON(val, y1, y2, area);
+        });
+
+        // --- Scene Search ---
+        const sceneSearchHeader = document.getElementById('scene-search-header');
+        const sceneSearchContent = document.getElementById('scene-search-content');
+        const sceneSearchArrow = document.getElementById('scene-search-arrow');
+        
+        sceneSearchHeader.addEventListener('click', () => {
+            if (sceneSearchContent.style.display === 'none') {
+                sceneSearchContent.style.display = 'block';
+                sceneSearchArrow.innerText = '▲';
+            } else {
+                sceneSearchContent.style.display = 'none';
+                sceneSearchArrow.innerText = '▼';
+            }
+        });
+
+        const today = new Date();
+        const twoYearsAgo = new Date(today);
+        twoYearsAgo.setFullYear(today.getFullYear() - 2);
+        document.getElementById('search-date-to').value = today.toISOString().split('T')[0];
+        document.getElementById('search-date-from').value = twoYearsAgo.toISOString().split('T')[0];
+        
+        document.getElementById('search-cloud').addEventListener('input', (e) => {
+            document.getElementById('search-cloud-val').innerText = e.target.value;
+        });
+
+        let searchBboxLayer = null;
+        let downloadPolls = {};
+
+        document.getElementById('search-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('search-btn');
+            const spinner = document.getElementById('search-spinner');
+            const errorDiv = document.getElementById('search-error');
+            const resultsContainer = document.getElementById('search-results');
+            
+            const payload = {
+                tile_id: document.getElementById('search-tile').value.trim() || "T43PGQ",
+                date_from: document.getElementById('search-date-from').value,
+                date_to: document.getElementById('search-date-to').value,
+                max_cloud_cover: parseFloat(document.getElementById('search-cloud').value)
+            };
+
+            btn.disabled = true;
+            spinner.style.display = 'block';
+            errorDiv.style.display = 'none';
+            resultsContainer.innerHTML = '';
+
+            try {
+                const res = await fetch(`${API_BASE}/scenes/search`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (!res.ok) throw new Error("Search request failed");
+                const data = await res.json();
+                
+                if (data.scenes.length === 0) {
+                    resultsContainer.innerHTML = '<div style="color: #888; font-size: 0.85rem;">No scenes found.</div>';
+                } else {
+                    data.scenes.forEach(scene => {
+                        const card = document.createElement('div');
+                        card.className = 'scene-card';
+                        card.innerHTML = `
+                            <div>📅 ${scene.date} &nbsp; ☁️ ${scene.cloud_cover.toFixed(1)}% &nbsp; 💾 ${scene.size_mb} MB</div>
+                            <div style="color: #aaa; font-size: 0.8rem; margin: 4px 0;">Tile: ${scene.tile}</div>
+                            <button id="dl-btn-${scene.download_id}" data-id="${scene.download_id}" data-title="${scene.title}" data-date="${scene.date}">Download</button>
+                            <div class="progress-bar-container" id="prog-container-${scene.download_id}">
+                                <div class="progress-bar" id="prog-bar-${scene.download_id}"></div>
+                            </div>
+                            <div id="dl-status-${scene.download_id}" style="font-size: 0.8rem; margin-top: 5px; color: #aaa;"></div>
+                        `;
+                        
+                        if (scene.bbox && scene.bbox.length === 4) {
+                            card.addEventListener('mouseenter', () => {
+                                if (searchBboxLayer) map.removeLayer(searchBboxLayer);
+                                const bounds = [[scene.bbox[1], scene.bbox[0]], [scene.bbox[3], scene.bbox[2]]];
+                                searchBboxLayer = L.rectangle(bounds, {color: "#007acc", weight: 2, fillOpacity: 0.1}).addTo(map);
+                            });
+                            card.addEventListener('mouseleave', () => {
+                                if (searchBboxLayer) {
+                                    map.removeLayer(searchBboxLayer);
+                                    searchBboxLayer = null;
+                                }
+                            });
+                        }
+                        
+                        resultsContainer.appendChild(card);
+                        
+                        document.getElementById(`dl-btn-${scene.download_id}`).addEventListener('click', (e) => {
+                            startDownload(e.target);
+                        });
+                    });
+                }
+            } catch (err) {
+                console.error(err);
+                errorDiv.innerText = "Error searching scenes.";
+                errorDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                spinner.style.display = 'none';
+            }
+        });
+
+        async function startDownload(btn) {
+            const dlId = btn.getAttribute('data-id');
+            const title = btn.getAttribute('data-title');
+            const date = btn.getAttribute('data-date');
+            const year = date.substring(0, 4);
+            
+            btn.disabled = true;
+            document.getElementById(`prog-container-${dlId}`).style.display = 'block';
+            const statusEl = document.getElementById(`dl-status-${dlId}`);
+            statusEl.innerText = "Queuing...";
+            
+            try {
+                const res = await fetch(`${API_BASE}/scenes/download`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ download_id: dlId, title: title, year: year })
+                });
+                
+                if (!res.ok) throw new Error("Failed to start download");
+                const data = await res.json();
+                
+                downloadPolls[dlId] = setInterval(() => pollDownload(dlId, data.task_id), 2000);
+            } catch (err) {
+                console.error(err);
+                statusEl.innerText = "Failed to start download.";
+                statusEl.style.color = "#f44336";
+                btn.disabled = false;
+            }
+        }
+
+        async function pollDownload(dlId, taskId) {
+            try {
+                const res = await fetch(`${API_BASE}/scenes/download/${taskId}`);
+                if (!res.ok) return;
+                const data = await res.json();
+                
+                const bar = document.getElementById(`prog-bar-${dlId}`);
+                const statusEl = document.getElementById(`dl-status-${dlId}`);
+                
+                bar.style.width = `${data.progress}%`;
+                
+                if (data.status === 'downloading') {
+                    statusEl.innerText = `Downloading... ${data.progress}%`;
+                } else if (data.status === 'complete') {
+                    clearInterval(downloadPolls[dlId]);
+                    statusEl.innerHTML = `✅ <span style="color: #4caf50;">Complete!</span><br><small style="word-break: break-all;">${data.safe_path}</small>`;
+                    document.getElementById(`prog-container-${dlId}`).style.display = 'none';
+                } else if (data.status === 'failed') {
+                    clearInterval(downloadPolls[dlId]);
+                    statusEl.innerText = `❌ Failed: ${data.error || 'Unknown error'}`;
+                    statusEl.style.color = "#f44336";
+                    document.getElementById(`prog-container-${dlId}`).style.display = 'none';
+                    document.getElementById(`dl-btn-${dlId}`).disabled = false;
+                }
+            } catch (err) { console.error(err); }
+        }
+
+        // --- Timeline Panel Logic ---
+        let timelineChart = null;
+
+        document.getElementById('timeline-toggle').addEventListener('click', async () => {
+            const panel = document.getElementById('timeline-panel');
+            const btn = document.getElementById('timeline-toggle');
+            const isOpen = panel.classList.contains('open');
+            
+            if (!isOpen) {
+                panel.classList.add('open');
+                btn.classList.add('open');
+                if (!timelineChart) {
+                    await loadTimelineChart();
+                }
+            } else {
+                panel.classList.remove('open');
+                btn.classList.remove('open');
+            }
+        });
+
+        document.getElementById('timeline-close').addEventListener('click', () => {
+            document.getElementById('timeline-panel').classList.remove('open');
+            document.getElementById('timeline-toggle').classList.remove('open');
+        });
+
+        
+        async function loadTimelineChart() {
+            const emptyState = document.getElementById('timeline-empty-state');
+            const chartContainer = document.getElementById('timeline-chart-container');
+
+            try {
+                const res = await fetch(`${API_BASE}/timeseries/summary`);
+                if (!res.ok) throw new Error("No data");
+                const data = await res.json();
+                
+                if (!data.results || data.results.length === 0) {
+                     throw new Error("Empty data");
+                }
+                
+                emptyState.style.display = 'none';
+                chartContainer.style.display = 'block';
+                
+                const labels = [];
+                const values = [];
+                const bgColors = [];
+                
+                const ctx = document.getElementById('timelineChart').getContext('2d');
+                const gradient = ctx.createLinearGradient(0, 0, 0, 200);
+                gradient.addColorStop(0, '#ff4444');
+                gradient.addColorStop(1, '#ff9944');
+
+                // If the backend returns 'pairs', use it for plotting. Fallback to 'results'.
+                const plotData = data.pairs && data.pairs.length > 0 ? data.pairs : data.results;
+
+                plotData.forEach((r, idx) => {
+                    labels.push(r.label || `${r.y1}→${r.y2}`);
+                    
+                    // The backend pairs format might not have a 'status' field, so we default to success if changed_area_km2 exists
+                    const isSuccess = data.results[idx] ? data.results[idx].status === 'success' : r.changed_area_km2 !== undefined;
+
+                    if (isSuccess) {
+                        values.push(r.changed_area_km2);
+                        bgColors.push(gradient);
+                    } else {
+                        values.push(0);
+                        bgColors.push('#ff0000');
+                    }
+                });
+                
+                if (timelineChart) timelineChart.destroy();
+
+                timelineChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Changed Area (km²)',
+                            data: values,
+                            backgroundColor: bgColors,
+                            borderWidth: 1,
+                            borderColor: '#cc0000',
+                            borderRadius: 4
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        const idx = context.dataIndex;
+                                        const r = data.results[idx];
+                                        if (r.status !== 'success') return 'Failed';
+                                        return `${r.changed_area_km2.toFixed(4)} km²`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                grid: { color: '#333' },
+                                ticks: { color: '#ccc' }
+                            },
+                            x: {
+                                grid: { display: false },
+                                ticks: { color: '#ccc' }
+                            }
+                        },
+                        onClick: async (e, elements) => {
+                            if (elements.length > 0) {
+                                const idx = elements[0].index;
+                                const r = data.results[idx];
+                                if (r.status === 'success') {
+                                    await loadTimeseriesGeoJSON(r.period, r.y1, r.y2);
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to load timeline chart", e);
+                emptyState.style.display = 'block';
+                chartContainer.style.display = 'none';
+            }
+        }
+
+        // --- Detection Logic & Helpers ---
+        let pollInterval = null;
+        let geojsonLayer = null;
+
+        function updateStatus(text, color) {
+            const el = document.getElementById('status-display');
+            el.innerText = text;
+            el.style.color = color;
+        }
+
         document.getElementById('run-btn').addEventListener('click', async () => {
             const t1Folder = document.getElementById('t1-folder').value.trim();
             const t2Folder = document.getElementById('t2-folder').value.trim();
@@ -218,164 +1169,306 @@
                 return;
             }
 
-            // Extract GeoJSON geometry from the drawn Leaflet layer
             const geojson = drawnLayer.toGeoJSON();
+            const userSession = JSON.parse(sessionStorage.getItem('userSession'));
+            const recipientEmail = userSession ? userSession.email : null;
             
-            const payload = {
-                aoi: {
-                    name: "Web Portal AOI",
-                    geom: geojson.geometry
-                },
-                t1_folder: t1Folder,
-                t2_folder: t2Folder
+            const payload = { 
+                aoi: { name: "Web AOI", geom: geojson.geometry },
+                aoi_geojson: JSON.stringify(geojson), 
+                t1_folder: t1Folder, 
+                t2_folder: t2Folder,
+                recipient_email: recipientEmail 
             };
 
             try {
                 updateStatus("Submitting task...", "yellow");
                 document.getElementById('run-btn').disabled = true;
 
-                const response = await fetch(`${API_BASE}/detect-change`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
+                const res = await fetch(`${API_BASE}/detect-change`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                 });
 
-                if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                
-                const data = await response.json();
-                const taskId = data.task_id;
+                if (!res.ok) throw new Error("HTTP Error");
+                const data = await res.json();
                 
                 updateStatus("Processing...", "#ff9800");
-                document.getElementById('task-id').innerText = `Task ID: ${taskId}`;
+                document.getElementById('task-id').innerText = `Task ID: ${data.task_id}`;
 
-                // Clear previous results from the map
-                if (geojsonLayer) {
-                    map.removeLayer(geojsonLayer);
-                    geojsonLayer = null;
-                }
-
-                // Start polling every 3 seconds
+                if (geojsonLayer) { map.removeLayer(geojsonLayer); geojsonLayer = null; }
+                
                 if (pollInterval) clearInterval(pollInterval);
-                pollInterval = setInterval(() => pollStatus(taskId), 3000);
-
+                pollInterval = setInterval(() => pollStatus(data.task_id), 3000);
             } catch (error) {
                 updateStatus("Error submitting task", "red");
-                console.error(error);
                 document.getElementById('run-btn').disabled = false;
             }
         });
 
-        // Poll Task Status from Backend
         async function pollStatus(taskId) {
             try {
-                const response = await fetch(`${API_BASE}/results/${taskId}`);
-                if (!response.ok) throw new Error("Failed to fetch status");
-                
-                const data = await response.json();
+                const res = await fetch(`${API_BASE}/results/${taskId}`);
+                if (!res.ok) throw new Error("Fetch failed");
+                const data = await res.json();
                 
                 if (data.status === 'complete') {
                     clearInterval(pollInterval);
                     updateStatus(`Complete! Area: ${data.changed_area_km2.toFixed(4)} km²`, "#4caf50");
                     document.getElementById('run-btn').disabled = false;
-                    
-                    // Attempt to fetch the generated GeoJSON to display on the map
-                    if (data.geojson_path) {
-                        loadResultGeoJSON(data.geojson_path);
-                    }
-                    
-                    fetchAlerts(); // Immediately refresh alerts panel
+                    if (data.geojson_path) loadResultGeoJSON(data.geojson_path);
+                    fetchAlerts();
                 } else if (data.status === 'failed') {
                     clearInterval(pollInterval);
                     updateStatus("Task Failed (check logs)", "red");
                     document.getElementById('run-btn').disabled = false;
                 } else {
-                    // Update UI with current status (e.g. 'processing')
                     updateStatus(`Status: ${data.status}...`, "#ff9800");
                 }
-            } catch (error) {
-                console.error("Polling error:", error);
-            }
+            } catch (err) { console.error(err); }
         }
 
-        function updateStatus(text, color) {
-            const el = document.getElementById('status-display');
-            el.innerText = text;
-            el.style.color = color;
-        }
-
-        // Fetch and render the resulting GeoJSON change polygons
         async function loadResultGeoJSON(localPath) {
             try {
-                // If FastAPI isn't configured to serve static files, this fetch will fail CORS/404.
-                // Assuming it's exposed or testing locally using a relative path wrapper.
-                // Convert Windows backslashes if present
                 const cleanPath = localPath.replace(/\\/g, '/');
-                
-                // If running locally, you might need to adjust the path to point to your static endpoint
-                // e.g. http://localhost:8000/outputs/...
-                // Here we construct a relative path assuming the frontend runs alongside it
                 const url = `http://localhost:8000/${cleanPath}`; 
-
-                const response = await fetch(url);
-                if (!response.ok) throw new Error("GeoJSON not found at URL");
-                
-                const geojsonData = await response.json();
+                const res = await fetch(url);
+                if (!res.ok) throw new Error("GeoJSON not found");
+                const geojsonData = await res.json();
                 
                 geojsonLayer = L.geoJSON(geojsonData, {
-                    style: { 
-                        color: '#ff0000', 
-                        weight: 2, 
-                        fillColor: '#ff0000', 
-                        fillOpacity: 0.5 
-                    },
-                    onEachFeature: function (feature, layer) {
+                    style: { color: '#ff0000', weight: 2, fillColor: '#ff0000', fillOpacity: 0.5 },
+                    onEachFeature: (feature, layer) => {
                         if (feature.properties && feature.properties.area_km2 !== undefined) {
                             layer.bindPopup(`<strong>Change Detected</strong><br>Area: ${feature.properties.area_km2.toFixed(4)} km²`);
                         }
                     }
                 }).addTo(map);
-                
-                // Zoom map to fit the change polygons
                 map.fitBounds(geojsonLayer.getBounds());
-            } catch (err) {
-                console.warn("Could not load GeoJSON to map. Ensure the backend serves the 'outputs/' directory statically.", err);
+            } catch (err) { console.warn(err); }
+        }
+
+        async function loadTimeseriesGeoJSON(period, y1, y2, area) {
+            try {
+                updateStatus(`Loading ${y1}→${y2} changes...`, "#ff9800");
+
+
+                const res = await fetch(`${API_BASE}/timeseries/${period}/geojson`);
+                if (!res.ok) throw new Error("GeoJSON not found");
+                const geojsonData = await res.json();
+                
+                if (geojsonLayer) { map.removeLayer(geojsonLayer); geojsonLayer = null; }
+                
+                geojsonLayer = L.geoJSON(geojsonData, {
+                    style: { color: '#ff0000', weight: 2, fillColor: '#ff0000', fillOpacity: 0.5 },
+                    onEachFeature: (feature, layer) => {
+                        if (feature.properties && feature.properties.area_km2 !== undefined) {
+                            layer.bindPopup(`<strong>Change Detected</strong><br>Area: ${feature.properties.area_km2.toFixed(4)} km²`);
+                        }
+                    }
+                }).addTo(map);
+                map.fitBounds(geojsonLayer.getBounds());
+                updateStatus(`Overlay: ${y1}→${y2} loaded`, "#4caf50");
+            } catch (e) {
+                console.error(e);
+                updateStatus(`Failed to load GeoJSON for ${y1}→${y2}`, "red");
             }
         }
 
-        // Fetch Unacknowledged Alerts from Backend
         async function fetchAlerts() {
             try {
-                const response = await fetch(`${API_BASE}/alerts`);
-                if (!response.ok) return;
-                
-                const alerts = await response.json();
+                const res = await fetch(`${API_BASE}/alerts`);
+                if (!res.ok) return;
+                const alerts = await res.json();
                 const container = document.getElementById('alerts-container');
                 const badge = document.getElementById('alert-count');
+                const clearBtn = document.getElementById('clear-alerts-btn');
                 
                 if (alerts.length === 0) {
                     container.innerHTML = '<div style="color: #888; font-size: 0.9rem;">No alerts yet.</div>';
                     badge.style.display = 'none';
+                    clearBtn.style.display = 'none';
                     return;
                 }
                 
                 badge.innerText = alerts.length;
                 badge.style.display = 'inline';
-                
+                clearBtn.style.display = 'inline-block';
                 container.innerHTML = '';
+                
                 alerts.forEach(alert => {
                     const div = document.createElement('div');
                     div.className = 'alert-card';
-                    const time = new Date(alert.triggered_at).toLocaleTimeString();
-                    div.innerHTML = `<strong>${time}</strong><br>${alert.message}`;
+                    div.innerHTML = alert.message;
                     container.appendChild(div);
                 });
+            } catch (err) {}
+        }
+        setInterval(fetchAlerts, 10000);
+        fetchAlerts();
+
+        document.getElementById('clear-alerts-btn').addEventListener('click', async () => {
+            try {
+                const res = await fetch(`${API_BASE}/alerts/acknowledge-all`, {
+                    method: 'POST'
+                });
+                if (res.ok) {
+                    fetchAlerts();
+                }
             } catch (err) {
-                console.error("Failed to fetch alerts", err);
+                console.error("Failed to clear alerts", err);
+            }
+        });
+
+        // --- Auth & Session Logic ---
+        const authModal = document.getElementById('auth-modal');
+        const tabLogin = document.getElementById('tab-login');
+        const tabRegister = document.getElementById('tab-register');
+        const formLogin = document.getElementById('form-login');
+        const formRegister = document.getElementById('form-register');
+        const authStatus = document.getElementById('auth-status');
+        const authUsername = document.getElementById('auth-username');
+        const btnLogout = document.getElementById('btn-logout');
+
+        function checkSession() {
+            const user = JSON.parse(sessionStorage.getItem('userSession'));
+            if (user) {
+                authModal.style.display = 'none';
+                authStatus.style.display = 'inline-block';
+                authUsername.innerText = `👤 ${user.username}`;
+            } else {
+                authModal.style.display = 'flex';
+                authStatus.style.display = 'none';
             }
         }
 
-        // Periodically check for new alerts every 10 seconds
-        setInterval(fetchAlerts, 10000);
+        tabLogin.addEventListener('click', () => {
+            tabLogin.classList.add('active');
+            tabRegister.classList.remove('active');
+            formLogin.classList.add('active');
+            formRegister.classList.remove('active');
+        });
+
+        tabRegister.addEventListener('click', () => {
+            tabRegister.classList.add('active');
+            tabLogin.classList.remove('active');
+            formRegister.classList.add('active');
+            formLogin.classList.remove('active');
+        });
+
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value.trim();
+            const errorDiv = document.getElementById('login-error');
+            errorDiv.style.display = 'none';
+            
+            if (!email || !password) {
+                errorDiv.innerText = "Please fill in all fields.";
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || "Login failed");
+                }
+                const data = await res.json();
+                sessionStorage.setItem('userSession', JSON.stringify(data));
+                checkSession();
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        document.getElementById('reg-password').addEventListener('input', (e) => {
+            const val = e.target.value;
+            const ruleLength = document.getElementById('rule-length');
+            const ruleNumber = document.getElementById('rule-number');
+            const ruleUppercase = document.getElementById('rule-uppercase');
+
+            ruleLength.innerHTML = val.length >= 6 ? '✅ <span style="color: #4caf50;">Min 6 characters</span>' : '❌ Min 6 characters';
+            ruleNumber.innerHTML = /\d/.test(val) ? '✅ <span style="color: #4caf50;">1 number</span>' : '❌ 1 number';
+            ruleUppercase.innerHTML = /[A-Z]/.test(val) ? '✅ <span style="color: #4caf50;">1 uppercase letter</span>' : '❌ 1 uppercase letter';
+        });
+
+        document.getElementById('btn-register').addEventListener('click', async () => {
+            const username = document.getElementById('reg-username').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value.trim();
+            const errorDiv = document.getElementById('reg-error');
+            errorDiv.style.display = 'none';
+            
+            if (!username || !email || !password) {
+                errorDiv.innerText = "Please fill in all fields.";
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || "Registration failed");
+                }
+                const data = await res.json();
+                sessionStorage.setItem('userSession', JSON.stringify(data));
+                checkSession();
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        btnLogout.addEventListener('click', () => {
+            sessionStorage.removeItem('userSession');
+            location.reload();
+        });
+
+        checkSession();
+
+    </script>
+</body>
+</html>l || !password) {
+                errorDiv.innerText = "Please fill in all fields.";
+                errorDiv.style.display = 'block';
+                return;
+            }
+            
+            try {
+                const res = await fetch(`${API_BASE}/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, email, password })
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || "Registration failed");
+                }
+                const data = await res.json();
+                sessionStorage.setItem('userSession', JSON.stringify(data));
+                checkSession();
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                errorDiv.style.display = 'block';
+            }
+        });
+
+        btnLogout.addEventListener('click', () => {
+            sessionStorage.removeItem('userSession');
+            location.reload();
+        });
+
+        checkSession();
 
     </script>
 </body>
