@@ -250,6 +250,15 @@ def get_download_status(task_id: str):
     else:
         return {"status": "pending", "progress": 0}
 
+@router.get("/debug/env")
+def debug_env():
+    """Temporary debug endpoint to check if environment variables are set."""
+    return {
+        "copernicus_client_id": bool(os.environ.get("COPERNICUS_CLIENT_ID")),
+        "copernicus_username": bool(os.environ.get("COPERNICUS_USERNAME")),
+        "copernicus_password": bool(os.environ.get("COPERNICUS_PASSWORD")),
+    
+
 @router.get("/timeseries/summary")
 def get_timeseries_summary():
     """Build timeseries summary from B2 stored GeoJSON files."""
@@ -298,11 +307,4 @@ def get_timeseries_geojson(period: str):
         raise HTTPException(status_code=404, detail="Failed to fetch from B2")
     return r.json()
 
-@router.get("/debug/env")
-def debug_env():
-    """Temporary debug endpoint to check if environment variables are set."""
-    return {
-        "copernicus_client_id": bool(os.environ.get("COPERNICUS_CLIENT_ID")),
-        "copernicus_username": bool(os.environ.get("COPERNICUS_USERNAME")),
-        "copernicus_password": bool(os.environ.get("COPERNICUS_PASSWORD")),
-    }
+}
