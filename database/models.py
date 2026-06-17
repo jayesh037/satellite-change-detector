@@ -76,6 +76,8 @@ class DetectionResult(Base):
     
     change_mask_path: Mapped[Optional[str]] = mapped_column(String(512))
     geojson_path: Mapped[Optional[str]] = mapped_column(String(512))
+    geojson_b2_key: Mapped[Optional[str]] = mapped_column(String(512))
+    geotiff_b2_key: Mapped[Optional[str]] = mapped_column(String(512))
     changed_area_km2: Mapped[Optional[float]] = mapped_column(Float)
     
     t1_date: Mapped[Optional[date]] = mapped_column(Date)
@@ -133,7 +135,7 @@ def get_engine() -> Any:
     Falls back to a default localhost URL if the config is not present.
     """
     config_path = "configs/config.yaml"
-    db_url = "postgresql://user:password@localhost:5432/satellite_db" # default fallback
+    db_url = os.environ.get("DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/satchange")  # Use cloud DB if available
     
     try:
         if os.path.exists(config_path):

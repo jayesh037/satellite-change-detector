@@ -12,7 +12,7 @@ from sqlalchemy import text
 # Add the project root to the python path to allow absolute imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database.models import engine
+from database.models import engine, Base
 from backend.routes import router
 
 
@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
         with engine.connect() as conn:
             conn.execute(text("SELECT 1"))
         print("Successfully connected to the database.")
+        Base.metadata.create_all(bind=engine)
     except Exception as e:
         print(f"WARNING: Failed to connect to the database. Running anyway. Error: {e}")
         

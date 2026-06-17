@@ -38,6 +38,8 @@ class ResultResponse(BaseModel):
     status: str
     changed_area_km2: Optional[float] = None
     geojson_path: Optional[str] = None
+    geojson_url: Optional[str] = None
+    geotiff_url: Optional[str] = None
     t1_date: Optional[date] = None
     t2_date: Optional[date] = None
 

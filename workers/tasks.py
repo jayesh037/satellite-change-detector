@@ -13,12 +13,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from pipeline.inference import run_inference
 from workers.alerts import trigger_alert
+from backend.storage import upload_file, get_signed_url
 from backend.copernicus import download_scene
 from database.models import SessionLocal, DetectionResult, Alert
 
 # Load configuration for Celery Redis broker
 config_path = "configs/config.yaml"
-redis_url = "redis://localhost:6379/0"  # Default fallback
+redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/0")  # Use cloud Redis if available
 
 try:
     if os.path.exists(config_path):
@@ -118,11 +119,32 @@ def run_detection_task(
         
         changed_area_km2 = inference_results["changed_area_km2"]
         
-        # 3. Save results to DB
-        update_status(
-            status="complete",
-            change_mask_path=str(inference_results["geotiff_path"]),
-            geojson_path=str(inference_results["geojson_path"]),
+        # 3. Upload results to B2 and save to DB
+        geojson_local = Path(inference_results["geojson_path"])
+        geotiff_local = Path(inference_results["geotiff_path"])
+
+        geojson_key = None
+        geotiff_key = None
+
+        if geojson_local.exists():
+            geojson_key = upload_file(
+                str(geojson_local),
+                f"results/{task_id}/change_mask.geojson"
+            )
+            print(f"GeoJSON uploaded to B2: {geojson_key}")
+
+        if geotiff_local.exists():
+            geotiff_key = upload_file(
+                str(geotiff_local),
+                f"results/{task_id}/change_mask.tif"
+            )
+            print(f"GeoTIFF uploaded to B2: {geotiff_key}")
+
+        update_status("complete",
+            change_mask_path=geotiff_key or str(geotiff_local),
+            geojson_path=geojson_key or str(geojson_local),
+            geojson_b2_key=geojson_key,
+            geotiff_b2_key=geotiff_key,
             changed_area_km2=changed_area_km2
         )
         

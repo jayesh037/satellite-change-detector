@@ -1153,6 +1153,16 @@
         // --- Detection Logic & Helpers ---
         let pollInterval = null;
         let geojsonLayer = null;
+        let timerInterval = null;
+        let startTime = null;
+
+        function updateTimer() {
+            if (!startTime) return;
+            const diff = Math.floor((Date.now() - startTime) / 1000);
+            const mins = Math.floor(diff / 60);
+            const secs = diff % 60;
+            document.getElementById('timer-display').innerText = `Elapsed Time: ${mins}:${secs.toString().padStart(2, '0')}`;
+        }
 
         function updateStatus(text, color) {
             const el = document.getElementById('status-display');
@@ -1213,12 +1223,16 @@
                 
                 if (data.status === 'complete') {
                     clearInterval(pollInterval);
+                    if (timerInterval) clearInterval(timerInterval);
+                    document.getElementById('cpu-warning').style.display = 'none';
                     updateStatus(`Complete! Area: ${data.changed_area_km2.toFixed(4)} km²`, "#4caf50");
                     document.getElementById('run-btn').disabled = false;
-                    if (data.geojson_path) loadResultGeoJSON(data.geojson_path);
+                    if (data.geojson_url) loadResultGeoJSON(data.geojson_url);
                     fetchAlerts();
                 } else if (data.status === 'failed') {
                     clearInterval(pollInterval);
+                    if (timerInterval) clearInterval(timerInterval);
+                    document.getElementById('cpu-warning').style.display = 'none';
                     updateStatus("Task Failed (check logs)", "red");
                     document.getElementById('run-btn').disabled = false;
                 } else {
@@ -1227,10 +1241,8 @@
             } catch (err) { console.error(err); }
         }
 
-        async function loadResultGeoJSON(localPath) {
+        async function loadResultGeoJSON(url) {
             try {
-                const cleanPath = localPath.replace(/\\/g, '/');
-                const url = `http://localhost:8000/${cleanPath}`; 
                 const res = await fetch(url);
                 if (!res.ok) throw new Error("GeoJSON not found");
                 const geojsonData = await res.json();
@@ -1469,6 +1481,38 @@
         });
 
         checkSession();
+
+    </script>
+</body>
+</html>           errorDiv.style.display = 'block';
+            }
+        });
+
+        btnLogout.addEventListener('click', () => {
+            sessionStorage.removeItem('userSession');
+            location.reload();
+        });
+
+        checkSession();
+
+    </script>
+</body>
+</html>    checkSession();
+
+    </script>
+</body>
+</html>    });
+
+        btnLogout.addEventListener('click', () => {
+            sessionStorage.removeItem('userSession');
+            location.reload();
+        });
+
+        checkSession();
+
+    </script>
+</body>
+</html>    checkSession();
 
     </script>
 </body>
