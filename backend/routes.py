@@ -323,14 +323,16 @@ def get_timeseries_summary():
 
 @router.get("/timeseries/{period}/geojson")
 def get_timeseries_geojson(period: str):
-    """
-    Reads and returns the outputs/timeseries/{period}/change_polygons.geojson file.
-    """
-    geojson_path = Path(f"outputs/timeseries/{period}/change_polygons.geojson")
-    if not geojson_path.exists():
+    """Fetch timeseries GeoJSON from B2."""
+    import httpx
+    b2_key = f"timeseries/{period}/change_polygons.geojson"
+    if not file_exists(b2_key):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"GeoJSON for period {period} not found."
         )
-    with open(geojson_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+    signed_url = get_signed_url(b2_key)
+    r = httpx.get(signed_url, timeout=30)
+    if r.status_code != 200:
+        raise HTTPException(status_code=404, detail="Failed to fetch from B2")
+    return r.json()
