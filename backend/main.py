@@ -60,6 +60,9 @@ app.add_middleware(
 )
 
 # Mount outputs directory for static file serving
+import os as _os
+for _d in ["outputs", "outputs/tci", "outputs/indices", "outputs/timeseries"]:
+    _os.makedirs(_d, exist_ok=True)
 app.mount("/outputs", StaticFiles(directory="outputs"), name="outputs")
 app.mount("/tci", StaticFiles(directory="outputs/tci"), name="tci")
 app.mount("/indices", StaticFiles(directory="outputs/indices"), name="indices")
