@@ -19,9 +19,9 @@ from backend.schemas import (
     SceneSearchRequest, SceneSearchResponse, DownloadRequest,
     UserRegister, UserLogin, UserResponse
 )
-from workers.tasks import run_detection_task, download_scene_task
 from database.models import get_db, AOI, DetectionResult, Alert, User
 from backend.copernicus import search_scenes
+from backend.storage import get_signed_url, file_exists
 from passlib.context import CryptContext
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -117,6 +117,7 @@ def detect_change(request: DetectionRequest, db: Session = Depends(get_db)):
     db.refresh(db_result)
     
     # 3. Queue the Celery task
+    from workers.tasks import run_detection_task
     task = run_detection_task.delay(
         result_id=str(db_result.id),
         t1_folder=request.t1_folder,
@@ -150,7 +151,14 @@ def get_result(task_id: str, db: Session = Depends(get_db)):
             detail=f"Task with ID {task_id} not found."
         )
 
-    return result
+    result_response = ResultResponse.model_validate(result)
+
+    if result.geojson_b2_key and file_exists(result.geojson_b2_key):
+        result_response.geojson_url = get_signed_url(result.geojson_b2_key)
+    if result.geotiff_b2_key and file_exists(result.geotiff_b2_key):
+        result_response.geotiff_url = get_signed_url(result.geotiff_b2_key)
+
+    return result_response
 
 @router.get("/alerts", response_model=List[AlertResponse])
 def get_alerts(db: Session = Depends(get_db)):
@@ -215,6 +223,7 @@ def download_scene_endpoint(request: DownloadRequest):
     """
     Queues a scene for download.
     """
+    from workers.tasks import download_scene_task
     task = download_scene_task.delay(request.download_id, request.title, request.year)
     return {"task_id": task.id}
 
