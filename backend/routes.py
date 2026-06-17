@@ -252,73 +252,34 @@ def get_download_status(task_id: str):
 
 @router.get("/timeseries/summary")
 def get_timeseries_summary():
-    """
-    Reads the outputs/timeseries/ folder and builds a summary of changed areas.
-    If outputs/timeseries/summary.json exists, returns its content.
-    Otherwise, scans subdirectories (e.g. 2021_2022) for change_polygons.geojson,
-    sums the area, and returns a dynamic summary.
-    """
-    timeseries_dir = Path("outputs/timeseries")
-    
-    # Return empty summary if the base directory doesn't exist
-    if not timeseries_dir.exists():
-        return {"pairs": [], "results": []}
-        
-    summary_path = timeseries_dir / "summary.json"
-    if summary_path.exists():
-        with open(summary_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    # Build dynamically if summary.json is missing
+    """Build timeseries summary from B2 stored GeoJSON files."""
+    import httpx as _httpx
+    periods = [
+        ("2019","2020"), ("2020","2021"), ("2021","2022"),
+        ("2022","2023"), ("2023","2024"), ("2024","2025"), ("2025","2026")
+    ]
     results = []
     pairs = []
-    
-    # Look for subdirectories named like YYYY_YYYY
-    for period_dir in timeseries_dir.iterdir():
-        if period_dir.is_dir() and "_" in period_dir.name:
-            parts = period_dir.name.split("_")
-            if len(parts) == 2:
-                y1, y2 = parts
-                geojson_path = period_dir / "change_polygons.geojson"
-                
-                area_km2 = 0.0
-                status = "failed"
-                
-                if geojson_path.exists():
-                    try:
-                        with open(geojson_path, "r", encoding="utf-8") as f:
-                            data = json.load(f)
-                            features = data.get("features", [])
-                            for feature in features:
-                                props = feature.get("properties", {})
-                                area_km2 += props.get("area_km2", 0.0)
-                        status = "success"
-                    except Exception as e:
-                        print(f"Error reading geojson {geojson_path}: {e}")
-                
-                result_obj = {
-                    "period": period_dir.name,
-                    "y1": y1,
-                    "y2": y2,
-                    "changed_area_km2": area_km2,
-                    "status": status
-                }
-                results.append(result_obj)
-                
-                pairs.append({
-                    "label": f"{y1}→{y2}",
-                    "changed_area_km2": area_km2,
-                    "y1": y1 # Used for sorting
-                })
-
-    # Sort chronologically based on y1
-    results.sort(key=lambda x: x["y1"])
-    pairs.sort(key=lambda x: x["y1"])
-    
-    # Remove y1 from pairs after sorting to match the exact requested format
-    for p in pairs:
-        p.pop("y1", None)
-
+    for y1, y2 in periods:
+        period = f"{y1}_{y2}"
+        b2_key = f"timeseries/{period}/change_polygons.geojson"
+        area_km2 = 0.0
+        status_val = "failed"
+        try:
+            signed_url = get_signed_url(b2_key)
+            r = _httpx.get(signed_url, timeout=60)
+            if r.status_code == 200:
+                data = r.json()
+                features = data.get("features", [])
+                for feature in features:
+                    props = feature.get("properties", {})
+                    area_km2 += props.get("area_km2", 0.0)
+                status_val = "success"
+        except Exception as e:
+            print(f"Timeseries {period} error: {e}")
+        results.append({"period": period, "y1": y1, "y2": y2,
+                        "changed_area_km2": area_km2, "status": status_val})
+        pairs.append({"label": f"{y1}\u2192{y2}", "changed_area_km2": area_km2})
     return {"pairs": pairs, "results": results}
 
 @router.get("/timeseries/{period}/geojson")
