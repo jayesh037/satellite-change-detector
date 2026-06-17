@@ -17,8 +17,10 @@ class AOICreate(BaseModel):
 class DetectionRequest(BaseModel):
     """Schema for requesting a new change detection task."""
     aoi: AOICreate
-    t1_folder: str = Field(..., description="Path to the T1 (before) Sentinel-2 images folder")
-    t2_folder: str = Field(..., description="Path to the T2 (after) Sentinel-2 images folder")
+    t1_folder: Optional[str] = Field(None, description="Path to the T1 (before) Sentinel-2 images folder")
+    t2_folder: Optional[str] = Field(None, description="Path to the T2 (after) Sentinel-2 images folder")
+    t1_scene_id: Optional[str] = Field(None, description="Copernicus Scene ID for T1")
+    t2_scene_id: Optional[str] = Field(None, description="Copernicus Scene ID for T2")
     t1_date: Optional[date] = Field(None, description="Date of the T1 images")
     t2_date: Optional[date] = Field(None, description="Date of the T2 images")
     aoi_geojson: Optional[str] = None

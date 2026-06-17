@@ -514,17 +514,25 @@
         </h2>
         
         <div class="form-group">
-            <label for="t1-folder">T1 Folder Path (Before)</label>
-            <input type="text" id="t1-folder" placeholder="e.g. data/t1" value="">
+            <label for="t1-scene-select">Before Scene (T1)</label>
+            <select id="t1-scene-select">
+                <option value="">-- Select from search ▼ --</option>
+            </select>
         </div>
         
         <div class="form-group">
-            <label for="t2-folder">T2 Folder Path (After)</label>
-            <input type="text" id="t2-folder" placeholder="e.g. data/t2" value="">
+            <label for="t2-scene-select">After Scene (T2)</label>
+            <select id="t2-scene-select">
+                <option value="">-- Select from search ▼ --</option>
+            </select>
         </div>
 
         <button id="draw-btn">Draw AOI on Map</button>
         <button id="run-btn" disabled>Run Detection</button>
+        
+        <div id="cpu-warning" style="background-color: #ffe082; color: #3e2723; padding: 10px; border-radius: 4px; font-size: 0.85rem; margin-top: 5px; border-left: 4px solid #ffb300;">
+            ⚙️ <strong>Running on CPU</strong> — inference takes ~8-15 minutes. Keep this tab open. You'll receive an email when complete.
+        </div>
 
         <div class="panel">
             <h3>Status</h3>
@@ -920,7 +928,28 @@
                 if (data.scenes.length === 0) {
                     resultsContainer.innerHTML = '<div style="color: #888; font-size: 0.85rem;">No scenes found.</div>';
                 } else {
+                    const t1Select = document.getElementById('t1-scene-select');
+                    const t2Select = document.getElementById('t2-scene-select');
+                    
+                    // Clear existing options except the first placeholder
+                    t1Select.innerHTML = '<option value="">-- Select from search ▼ --</option>';
+                    t2Select.innerHTML = '<option value="">-- Select from search ▼ --</option>';
+                    
                     data.scenes.forEach(scene => {
+                        const optionText = `${scene.date} | ☁️ ${scene.cloud_cover.toFixed(1)}% | ${scene.tile}`;
+                        
+                        const opt1 = document.createElement('option');
+                        opt1.value = scene.download_id;
+                        opt1.text = optionText;
+                        opt1.dataset.date = scene.date;
+                        t1Select.appendChild(opt1);
+                        
+                        const opt2 = document.createElement('option');
+                        opt2.value = scene.download_id;
+                        opt2.text = optionText;
+                        opt2.dataset.date = scene.date;
+                        t2Select.appendChild(opt2);
+
                         const card = document.createElement('div');
                         card.className = 'scene-card';
                         card.innerHTML = `
@@ -1171,13 +1200,19 @@
         }
 
         document.getElementById('run-btn').addEventListener('click', async () => {
-            const t1Folder = document.getElementById('t1-folder').value.trim();
-            const t2Folder = document.getElementById('t2-folder').value.trim();
+            const t1Select = document.getElementById('t1-scene-select');
+            const t2Select = document.getElementById('t2-scene-select');
+            
+            const t1SceneId = t1Select.value;
+            const t2SceneId = t2Select.value;
 
-            if (!t1Folder || !t2Folder || !drawnLayer) {
-                alert("Please provide both folder paths and draw an AOI on the map.");
+            if (!t1SceneId || !t2SceneId || !drawnLayer) {
+                alert("Please select both scenes and draw an AOI on the map.");
                 return;
             }
+
+            const t1Date = t1Select.options[t1Select.selectedIndex].dataset.date;
+            const t2Date = t2Select.options[t2Select.selectedIndex].dataset.date;
 
             const geojson = drawnLayer.toGeoJSON();
             const userSession = JSON.parse(sessionStorage.getItem('userSession'));
@@ -1186,8 +1221,10 @@
             const payload = { 
                 aoi: { name: "Web AOI", geom: geojson.geometry },
                 aoi_geojson: JSON.stringify(geojson), 
-                t1_folder: t1Folder, 
-                t2_folder: t2Folder,
+                t1_scene_id: t1SceneId, 
+                t2_scene_id: t2SceneId,
+                t1_date: t1Date,
+                t2_date: t2Date,
                 recipient_email: recipientEmail 
             };
 

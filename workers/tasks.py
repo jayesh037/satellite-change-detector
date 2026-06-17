@@ -51,8 +51,10 @@ celery_app.conf.update(
 def run_detection_task(
     self, 
     result_id: str, 
-    t1_folder: str, 
-    t2_folder: str, 
+    t1_folder: Optional[str] = None, 
+    t2_folder: Optional[str] = None, 
+    t1_scene_id: Optional[str] = None,
+    t2_scene_id: Optional[str] = None,
     aoi_geojson: Optional[str] = None,
     recipient_email: Optional[str] = None,
     alert_threshold_km2: float = 1.0,
@@ -100,6 +102,23 @@ def run_detection_task(
     
     try:
         print(f"Starting change detection task {task_id} for Result ID {result_id}")
+        
+        # Load config if needed
+        app_config = {}
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                app_config = yaml.safe_load(f) or {}
+
+        # 1b. Download scenes if scene IDs are provided
+        if t1_scene_id and t2_scene_id:
+            print(f"Downloading T1 scene: {t1_scene_id}")
+            t1_year = t1_date[:4] if t1_date else "2021"
+            t1_folder = download_scene(t1_scene_id, t1_year, app_config)
+            
+            print(f"Downloading T2 scene: {t2_scene_id}")
+            t2_year = t2_date[:4] if t2_date else "2023"
+            t2_folder = download_scene(t2_scene_id, t2_year, app_config)
+            
         print(f"T1 Folder: {t1_folder}")
         print(f"T2 Folder: {t2_folder}")
         print(f"AOI GeoJSON received: {'yes' if aoi_geojson else 'no'}")
