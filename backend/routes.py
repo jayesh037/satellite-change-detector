@@ -297,3 +297,12 @@ def get_timeseries_geojson(period: str):
     if r.status_code != 200:
         raise HTTPException(status_code=404, detail="Failed to fetch from B2")
     return r.json()
+
+@router.get("/debug/env")
+def debug_env():
+    """Temporary debug endpoint to check if environment variables are set."""
+    return {
+        "copernicus_client_id": bool(os.environ.get("COPERNICUS_CLIENT_ID")),
+        "copernicus_username": bool(os.environ.get("COPERNICUS_USERNAME")),
+        "copernicus_password": bool(os.environ.get("COPERNICUS_PASSWORD")),
+    }
