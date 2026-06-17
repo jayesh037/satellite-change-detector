@@ -3,7 +3,7 @@ services:
     name: satchange-backend
     runtime: python
     buildCommand: pip install -r requirements_backend.txt
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: PYTHONPATH=/opt/render/project/src uvicorn backend.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         sync: false
