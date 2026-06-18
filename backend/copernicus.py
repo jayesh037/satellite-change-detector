@@ -50,7 +50,7 @@ def get_copernicus_token(config: dict[str, Any]) -> str:
             ``access_token``.
     """
     copernicus_config = config.get("copernicus", {})
-    token_url = copernicus_config.get("token_url")
+    token_url = copernicus_config.get("token_url") or os.getenv("COPERNICUS_TOKEN_URL", "https://identity.dataspace.copernicus.eu/auth/realms/CDSE/protocol/openid-connect/token")
     client_id = os.getenv("COPERNICUS_CLIENT_ID")
     client_secret = os.getenv("COPERNICUS_CLIENT_SECRET")
 
