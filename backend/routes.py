@@ -116,19 +116,32 @@ def detect_change(request: DetectionRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(db_result)
     
-    # 3. Queue the Celery task
-    from workers.tasks import run_detection_task
-    task = run_detection_task.delay(
-        result_id=str(db_result.id),
-        t1_folder=request.t1_folder,
-        t2_folder=request.t2_folder,
-        t1_scene_id=request.t1_scene_id,
-        t2_scene_id=request.t2_scene_id,
-        aoi_geojson=request.aoi_geojson,
-        recipient_email=request.recipient_email,
-        alert_threshold_km2=request.alert_threshold_km2 if request.alert_threshold_km2 is not None else 1.0,
-        t1_date=request.t1_date.isoformat() if request.t1_date else "2021-03-14",
-        t2_date=request.t2_date.isoformat() if request.t2_date else "2023-03-14"
+    # 3. Queue the Celery task via send_task (avoids importing torch on Render)
+    from celery import Celery as _Celery
+    import os as _os
+    _redis_url = _os.environ.get("REDIS_URL", "redis://localhost:6379/0")
+    if _redis_url.startswith("rediss://") and "ssl_cert_reqs" not in _redis_url:
+        _sep = "&" if "?" in _redis_url else "?"
+        _redis_url = f"{_redis_url}{_sep}ssl_cert_reqs=CERT_NONE"
+    _app = _Celery(broker=_redis_url, backend=_redis_url)
+    import ssl as _ssl
+    if _redis_url.startswith("rediss://"):
+        _app.conf.broker_use_ssl = {"ssl_cert_reqs": _ssl.CERT_NONE}
+        _app.conf.redis_backend_use_ssl = {"ssl_cert_reqs": _ssl.CERT_NONE}
+    task = _app.send_task(
+        "workers.tasks.run_detection_task",
+        kwargs=dict(
+            result_id=str(db_result.id),
+            t1_folder=request.t1_folder,
+            t2_folder=request.t2_folder,
+            t1_scene_id=request.t1_scene_id,
+            t2_scene_id=request.t2_scene_id,
+            aoi_geojson=request.aoi_geojson,
+            recipient_email=request.recipient_email,
+            alert_threshold_km2=request.alert_threshold_km2 if request.alert_threshold_km2 is not None else 1.0,
+            t1_date=request.t1_date.isoformat() if request.t1_date else "2021-03-14",
+            t2_date=request.t2_date.isoformat() if request.t2_date else "2023-03-14"
+        )
     )
     
     # 4. Update task_id in db
