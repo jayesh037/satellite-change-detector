@@ -308,4 +308,3 @@ def get_timeseries_geojson(period: str):
         raise HTTPException(status_code=404, detail="Failed to fetch from B2")
     return r.json()
 
-}
