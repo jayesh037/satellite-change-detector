@@ -257,7 +257,8 @@ def debug_env():
         "copernicus_client_id": bool(os.environ.get("COPERNICUS_CLIENT_ID")),
         "copernicus_username": bool(os.environ.get("COPERNICUS_USERNAME")),
         "copernicus_password": bool(os.environ.get("COPERNICUS_PASSWORD")),
-    
+    }
+
 
 @router.get("/timeseries/summary")
 def get_timeseries_summary():
