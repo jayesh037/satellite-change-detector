@@ -451,7 +451,118 @@
             from {bottom: 30px; opacity: 1;}
             to {bottom: 0; opacity: 0;}
         }
-</style>
+
+        /* Job queued info banner */
+        #job-queued-banner {
+            display: none;
+            background: linear-gradient(135deg, #0d2d4a 0%, #0a3d62 100%);
+            border: 1px solid #1e6fa8;
+            border-left: 4px solid #29b6f6;
+            border-radius: 6px;
+            padding: 14px 16px;
+            margin-top: 5px;
+            font-size: 0.85rem;
+            line-height: 1.6;
+            color: #b3e5fc;
+            animation: bannerSlideIn 0.4s ease;
+        }
+        @keyframes bannerSlideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        #job-queued-banner .banner-title {
+            font-size: 0.95rem;
+            font-weight: bold;
+            color: #e1f5fe;
+            margin-bottom: 6px;
+        }
+        #job-queued-banner .job-id-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 8px;
+            background: rgba(0,0,0,0.25);
+            border-radius: 4px;
+            padding: 6px 8px;
+        }
+        #job-queued-banner .job-id-label {
+            color: #81d4fa;
+            font-weight: bold;
+            white-space: nowrap;
+        }
+        #job-queued-banner .job-id-val {
+            font-family: monospace;
+            font-size: 0.75rem;
+            color: #e0f7fa;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            flex: 1;
+        }
+        #copy-job-id-btn {
+            background: rgba(41,182,246,0.15);
+            border: 1px solid #29b6f6;
+            color: #29b6f6;
+            padding: 2px 8px;
+            border-radius: 3px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+        #copy-job-id-btn:hover { background: rgba(41,182,246,0.3); }
+
+        /* Step progress indicator */
+        #step-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 8px;
+            font-size: 0.82rem;
+            color: #81d4fa;
+        }
+        #step-indicator .step-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #29b6f6;
+            flex-shrink: 0;
+            animation: stepPulse 1.2s ease-in-out infinite;
+        }
+        @keyframes stepPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.4; transform: scale(0.7); }
+        }
+
+        /* Elapsed timer */
+        #elapsed-timer {
+            font-size: 0.8rem;
+            color: #4fc3f7;
+            margin-top: 6px;
+            font-family: monospace;
+        }
+
+        /* Completion flash */
+        @keyframes completePulse {
+            0%   { background: linear-gradient(135deg, #0d2d4a, #0a3d62); border-color: #1e6fa8; }
+            30%  { background: linear-gradient(135deg, #0a3d1a, #1b5e20); border-color: #43a047; }
+            60%  { background: linear-gradient(135deg, #0a3d1a, #1b5e20); border-color: #66bb6a; }
+            100% { background: linear-gradient(135deg, #0a2e13, #1b5e20); border-color: #4caf50; }
+        }
+        #job-queued-banner.complete {
+            animation: completePulse 0.8s ease forwards;
+            border-left-color: #4caf50;
+            color: #c8e6c9;
+        }
+        #job-queued-banner.complete .banner-title { color: #a5d6a7; }
+        #job-queued-banner.complete #step-indicator { color: #a5d6a7; }
+        #job-queued-banner.complete .step-dot { background: #4caf50; animation: none; }
+        #job-queued-banner.failed {
+            background: linear-gradient(135deg, #2d0d0d, #3e1010);
+            border-left-color: #f44336;
+            color: #ffcdd2;
+        }
+    </style>
 </head>
 <body>
 
@@ -518,6 +629,7 @@
             <select id="t1-scene-select">
                 <option value="">-- Select from search ▼ --</option>
             </select>
+            <div id="t1-selected-info" style="font-size: 0.8rem; color: #888; margin-top: 2px;"></div>
         </div>
         
         <div class="form-group">
@@ -525,13 +637,30 @@
             <select id="t2-scene-select">
                 <option value="">-- Select from search ▼ --</option>
             </select>
+            <div id="t2-selected-info" style="font-size: 0.8rem; color: #888; margin-top: 2px;"></div>
         </div>
 
         <button id="draw-btn">Draw AOI on Map</button>
         <button id="run-btn" disabled>Run Detection</button>
         
-        <div id="cpu-warning" style="background-color: #ffe082; color: #3e2723; padding: 10px; border-radius: 4px; font-size: 0.85rem; margin-top: 5px; border-left: 4px solid #ffb300;">
-            ⚙️ <strong>Running on CPU</strong> — inference takes ~8-15 minutes. Keep this tab open. You'll receive an email when complete.
+        <!-- Blue info banner: hidden until job is queued -->
+        <div id="job-queued-banner">
+            <div class="banner-title" id="banner-title-text">⏳ Detection job queued!</div>
+            <div id="banner-body-text">
+                Estimated time: <strong>15–25 minutes</strong> on cloud CPU.<br>
+                <span id="banner-email-line" style="display:none">You’ll receive an email at <strong id="banner-email"></strong> when complete.<br></span>
+                You can safely close this tab — results will be saved.
+            </div>
+            <div class="job-id-row">
+                <span class="job-id-label">Job ID:</span>
+                <span class="job-id-val" id="banner-job-id">—</span>
+                <button id="copy-job-id-btn" title="Copy job ID">Copy</button>
+            </div>
+            <div id="step-indicator">
+                <span class="step-dot"></span>
+                <span id="step-text">Initializing job...</span>
+            </div>
+            <div id="elapsed-timer"></div>
         </div>
 
         <div class="panel">
@@ -572,7 +701,10 @@
                     <label for="search-cloud">Max Cloud Cover: <span id="search-cloud-val">20</span>%</label>
                     <input type="range" id="search-cloud" min="0" max="100" step="5" value="20">
                 </div>
-                <button id="search-btn" style="width: 100%; margin-top: 10px;">Search Scenes</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button id="search-t1-btn" style="flex: 1; font-size: 0.8rem; padding: 8px;">🔍 Search T1 (Before)</button>
+                    <button id="search-t2-btn" style="flex: 1; font-size: 0.8rem; padding: 8px;">🔍 Search T2 (After)</button>
+                </div>
                 
                 <div class="loading-spinner" id="search-spinner"></div>
                 <div id="search-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; display: none;"></div>
@@ -884,11 +1016,9 @@
             }
         });
 
-        const today = new Date();
-        const twoYearsAgo = new Date(today);
-        twoYearsAgo.setFullYear(today.getFullYear() - 2);
-        document.getElementById('search-date-to').value = today.toISOString().split('T')[0];
-        document.getElementById('search-date-from').value = twoYearsAgo.toISOString().split('T')[0];
+        let userModifiedDates = false;
+        document.getElementById('search-date-from').addEventListener('change', () => userModifiedDates = true);
+        document.getElementById('search-date-to').addEventListener('change', () => userModifiedDates = true);
         
         document.getElementById('search-cloud').addEventListener('input', (e) => {
             document.getElementById('search-cloud-val').innerText = e.target.value;
@@ -897,20 +1027,66 @@
         let searchBboxLayer = null;
         let downloadPolls = {};
 
-        document.getElementById('search-btn').addEventListener('click', async () => {
-            const btn = document.getElementById('search-btn');
+        function updateSelectedInfo(target) {
+            const select = document.getElementById(`${target.toLowerCase()}-scene-select`);
+            const infoDiv = document.getElementById(`${target.toLowerCase()}-selected-info`);
+            const selectedOpt = select.options[select.selectedIndex];
+            
+            if (selectedOpt && selectedOpt.value) {
+                const date = selectedOpt.dataset.date;
+                const cloud = selectedOpt.dataset.cloud;
+                const tile = selectedOpt.dataset.tile;
+                infoDiv.innerText = `Selected: ${date} | ${cloud}% | ${tile}`;
+            } else {
+                infoDiv.innerText = "";
+            }
+        }
+
+        document.getElementById('t1-scene-select').addEventListener('change', () => updateSelectedInfo('T1'));
+        document.getElementById('t2-scene-select').addEventListener('change', () => updateSelectedInfo('T2'));
+
+        async function performSearch(targetDropdown) {
+            const btnT1 = document.getElementById('search-t1-btn');
+            const btnT2 = document.getElementById('search-t2-btn');
             const spinner = document.getElementById('search-spinner');
             const errorDiv = document.getElementById('search-error');
             const resultsContainer = document.getElementById('search-results');
             
+            let dateFrom = document.getElementById('search-date-from').value;
+            let dateTo = document.getElementById('search-date-to').value;
+            
+            const today = new Date();
+            const t1From = new Date(today); t1From.setFullYear(today.getFullYear() - 5);
+            const t1To = new Date(today); t1To.setFullYear(today.getFullYear() - 3);
+            const t2From = new Date(today); t2From.setFullYear(today.getFullYear() - 2);
+            const t2To = new Date(today);
+            
+            const defT1From = t1From.toISOString().split('T')[0];
+            const defT1To = t1To.toISOString().split('T')[0];
+            const defT2From = t2From.toISOString().split('T')[0];
+            const defT2To = t2To.toISOString().split('T')[0];
+
+            if (!dateFrom || !dateTo || !userModifiedDates) {
+                if (targetDropdown === 'T1') {
+                    dateFrom = defT1From;
+                    dateTo = defT1To;
+                } else {
+                    dateFrom = defT2From;
+                    dateTo = defT2To;
+                }
+                document.getElementById('search-date-from').value = dateFrom;
+                document.getElementById('search-date-to').value = dateTo;
+            }
+
             const payload = {
                 tile_id: document.getElementById('search-tile').value.trim() || "T43PGQ",
-                date_from: document.getElementById('search-date-from').value,
-                date_to: document.getElementById('search-date-to').value,
+                date_from: dateFrom,
+                date_to: dateTo,
                 max_cloud_cover: parseFloat(document.getElementById('search-cloud').value)
             };
 
-            btn.disabled = true;
+            btnT1.disabled = true;
+            btnT2.disabled = true;
             spinner.style.display = 'block';
             errorDiv.style.display = 'none';
             resultsContainer.innerHTML = '';
@@ -925,30 +1101,23 @@
                 if (!res.ok) throw new Error("Search request failed");
                 const data = await res.json();
                 
+                const targetSelect = document.getElementById(targetDropdown === 'T1' ? 't1-scene-select' : 't2-scene-select');
+                targetSelect.innerHTML = '<option value="">-- Select from search ▼ --</option>'; // Clear it
+                updateSelectedInfo(targetDropdown);
+
                 if (data.scenes.length === 0) {
                     resultsContainer.innerHTML = '<div style="color: #888; font-size: 0.85rem;">No scenes found.</div>';
                 } else {
-                    const t1Select = document.getElementById('t1-scene-select');
-                    const t2Select = document.getElementById('t2-scene-select');
-                    
-                    // Clear existing options except the first placeholder
-                    t1Select.innerHTML = '<option value="">-- Select from search ▼ --</option>';
-                    t2Select.innerHTML = '<option value="">-- Select from search ▼ --</option>';
-                    
                     data.scenes.forEach(scene => {
                         const optionText = `${scene.date} | ☁️ ${scene.cloud_cover.toFixed(1)}% | ${scene.tile}`;
                         
-                        const opt1 = document.createElement('option');
-                        opt1.value = scene.download_id;
-                        opt1.text = optionText;
-                        opt1.dataset.date = scene.date;
-                        t1Select.appendChild(opt1);
-                        
-                        const opt2 = document.createElement('option');
-                        opt2.value = scene.download_id;
-                        opt2.text = optionText;
-                        opt2.dataset.date = scene.date;
-                        t2Select.appendChild(opt2);
+                        const opt = document.createElement('option');
+                        opt.value = scene.download_id;
+                        opt.text = optionText;
+                        opt.dataset.date = scene.date;
+                        opt.dataset.cloud = scene.cloud_cover.toFixed(1);
+                        opt.dataset.tile = scene.tile;
+                        targetSelect.appendChild(opt);
 
                         const card = document.createElement('div');
                         card.className = 'scene-card';
@@ -988,10 +1157,14 @@
                 errorDiv.innerText = "Error searching scenes.";
                 errorDiv.style.display = 'block';
             } finally {
-                btn.disabled = false;
+                btnT1.disabled = false;
+                btnT2.disabled = false;
                 spinner.style.display = 'none';
             }
-        });
+        }
+
+        document.getElementById('search-t1-btn').addEventListener('click', () => performSearch('T1'));
+        document.getElementById('search-t2-btn').addEventListener('click', () => performSearch('T2'));
 
         async function startDownload(btn) {
             const dlId = btn.getAttribute('data-id');
@@ -1183,14 +1356,15 @@
         let pollInterval = null;
         let geojsonLayer = null;
         let timerInterval = null;
-        let startTime = null;
+        let startTime = null;  // UTC ms, set from server started_at or local clock
 
         function updateTimer() {
             if (!startTime) return;
             const diff = Math.floor((Date.now() - startTime) / 1000);
             const mins = Math.floor(diff / 60);
             const secs = diff % 60;
-            document.getElementById('timer-display').innerText = `Elapsed Time: ${mins}:${secs.toString().padStart(2, '0')}`;
+            const el = document.getElementById('elapsed-timer');
+            if (el) el.innerText = `Running for: ${mins}m ${secs.toString().padStart(2,'0')}s`;
         }
 
         function updateStatus(text, color) {
@@ -1198,6 +1372,14 @@
             el.innerText = text;
             el.style.color = color;
         }
+
+        // Copy-to-clipboard for job ID
+        document.getElementById('copy-job-id-btn').addEventListener('click', () => {
+            const val = document.getElementById('banner-job-id').innerText;
+            if (val && val !== '\u2014') {
+                navigator.clipboard.writeText(val).then(() => showToast('Job ID copied!')).catch(() => {});
+            }
+        });
 
         document.getElementById('run-btn').addEventListener('click', async () => {
             const t1Select = document.getElementById('t1-scene-select');
@@ -1238,14 +1420,36 @@
 
                 if (!res.ok) throw new Error("HTTP Error");
                 const data = await res.json();
-                
+
+                // --- Show blue info banner immediately ---
+                const banner = document.getElementById('job-queued-banner');
+                banner.className = '';  // reset any complete/failed classes
+                banner.style.display = 'block';
+
+                document.getElementById('banner-title-text').innerText = '⏳ Detection job queued!';
+                document.getElementById('banner-job-id').innerText = data.task_id;
+
+                if (recipientEmail) {
+                    document.getElementById('banner-email-line').style.display = 'inline';
+                    document.getElementById('banner-email').innerText = recipientEmail;
+                } else {
+                    document.getElementById('banner-email-line').style.display = 'none';
+                }
+
+                // Start elapsed timer from local clock (server started_at will refine it)
+                startTime = Date.now();
+                if (timerInterval) clearInterval(timerInterval);
+                timerInterval = setInterval(updateTimer, 1000);
+                updateTimer();
+
                 updateStatus("Processing...", "#ff9800");
                 document.getElementById('task-id').innerText = `Task ID: ${data.task_id}`;
 
                 if (geojsonLayer) { map.removeLayer(geojsonLayer); geojsonLayer = null; }
                 
                 if (pollInterval) clearInterval(pollInterval);
-                pollInterval = setInterval(() => pollStatus(data.task_id), 3000);
+                // Poll every 10 seconds to reduce server load
+                pollInterval = setInterval(() => pollStatus(data.task_id), 10000);
             } catch (error) {
                 updateStatus("Error submitting task", "red");
                 document.getElementById('run-btn').disabled = false;
@@ -1257,19 +1461,54 @@
                 const res = await fetch(`${API_BASE}/results/${taskId}`);
                 if (!res.ok) throw new Error("Fetch failed");
                 const data = await res.json();
+
+                // Update elapsed timer anchor from server started_at
+                if (data.started_at && !isNaN(new Date(data.started_at))) {
+                    const serverStart = new Date(data.started_at).getTime();
+                    // Only move startTime if server value is earlier (avoids jumps)
+                    if (!startTime || serverStart < startTime) {
+                        startTime = serverStart;
+                    }
+                }
+
+                // Update step text from status_message
+                if (data.status_message) {
+                    const stepEl = document.getElementById('step-text');
+                    if (stepEl) stepEl.innerText = data.status_message;
+                }
                 
                 if (data.status === 'complete') {
                     clearInterval(pollInterval);
-                    if (timerInterval) clearInterval(timerInterval);
-                    document.getElementById('cpu-warning').style.display = 'none';
+                    clearInterval(timerInterval);
+
+                    // Freeze the elapsed display
+                    const diff = Math.floor((Date.now() - startTime) / 1000);
+                    const mins = Math.floor(diff / 60);
+                    const secs = diff % 60;
+                    const elEl = document.getElementById('elapsed-timer');
+                    if (elEl) elEl.innerText = `Completed in: ${mins}m ${secs.toString().padStart(2,'0')}s`;
+
+                    // Green completion flash
+                    const banner = document.getElementById('job-queued-banner');
+                    banner.classList.add('complete');
+                    document.getElementById('banner-title-text').innerText = '✅ Detection Complete!';
+                    document.getElementById('step-text').innerText = `${data.changed_area_km2 !== null ? data.changed_area_km2.toFixed(4) + ' km² changed' : 'Results ready'}`;
+
                     updateStatus(`Complete! Area: ${data.changed_area_km2.toFixed(4)} km²`, "#4caf50");
                     document.getElementById('run-btn').disabled = false;
                     if (data.geojson_url) loadResultGeoJSON(data.geojson_url);
                     fetchAlerts();
                 } else if (data.status === 'failed') {
                     clearInterval(pollInterval);
-                    if (timerInterval) clearInterval(timerInterval);
-                    document.getElementById('cpu-warning').style.display = 'none';
+                    clearInterval(timerInterval);
+
+                    const banner = document.getElementById('job-queued-banner');
+                    banner.classList.add('failed');
+                    document.getElementById('banner-title-text').innerText = '❌ Detection Failed';
+                    document.getElementById('step-text').innerText = data.status_message || 'Check server logs for details.';
+                    const elEl = document.getElementById('elapsed-timer');
+                    if (elEl) elEl.innerText = '';
+
                     updateStatus("Task Failed (check logs)", "red");
                     document.getElementById('run-btn').disabled = false;
                 } else {

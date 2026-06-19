@@ -85,6 +85,7 @@ def run_detection_task(
     output_dir.mkdir(parents=True, exist_ok=True)
     
     db = SessionLocal()
+    started_at_dt = None
     
     def update_status(status: str, **kwargs):
         try:
@@ -98,7 +99,10 @@ def run_detection_task(
             print(f"Error updating DB status: {e}")
             db.rollback()
 
-    update_status("processing")
+    # Record start time and set initial status
+    from datetime import datetime as _dt
+    started_at_dt = _dt.utcnow()
+    update_status("processing", status_message="Initializing job...", started_at=started_at_dt)
     
     try:
         print(f"Starting change detection task {task_id} for Result ID {result_id}")
@@ -112,6 +116,7 @@ def run_detection_task(
         # 1b. Download scenes if scene IDs are provided
         if t1_scene_id and t2_scene_id:
             print(f"Downloading T1 scene: {t1_scene_id}")
+            update_status("processing", status_message="Downloading satellite bands...")
             t1_year = t1_date[:4] if t1_date else "2021"
             t1_folder = download_scene(t1_scene_id, t1_year, app_config)
             
@@ -127,6 +132,9 @@ def run_detection_task(
         # Assume checkpoint is in the default location
         checkpoint_path = "checkpoints/best_model.pth"
         
+        update_status("processing", status_message="Preprocessing images...")
+        
+        update_status("processing", status_message="Running ML inference...")
         inference_results = run_inference(
             t1_folder=t1_folder,
             t2_folder=t2_folder,
@@ -139,6 +147,7 @@ def run_detection_task(
         changed_area_km2 = inference_results["changed_area_km2"]
         
         # 3. Upload results to B2 and save to DB
+        update_status("processing", status_message="Uploading results...")
         geojson_local = Path(inference_results["geojson_path"])
         geotiff_local = Path(inference_results["geotiff_path"])
 
@@ -159,7 +168,15 @@ def run_detection_task(
             )
             print(f"GeoTIFF uploaded to B2: {geotiff_key}")
 
+        # Calculate processing duration in minutes
+        from datetime import datetime as _dt2
+        processing_minutes = None
+        if started_at_dt:
+            delta = _dt2.utcnow() - started_at_dt
+            processing_minutes = round(delta.total_seconds() / 60, 1)
+
         update_status("complete",
+            status_message=f"Detection complete — {changed_area_km2:.4f} km² changed",
             change_mask_path=geotiff_key or str(geotiff_local),
             geojson_path=geojson_key or str(geojson_local),
             geojson_b2_key=geojson_key,
@@ -186,7 +203,8 @@ def run_detection_task(
                     task_id=task_id,
                     tile="T43PGQ",
                     t1_date=t1_date or "",
-                    t2_date=t2_date or ""
+                    t2_date=t2_date or "",
+                    processing_minutes=processing_minutes
                 )
             except Exception as e:
                 print(f"Error inserting alert into DB: {e}")
@@ -201,7 +219,7 @@ def run_detection_task(
         print(f"Task {task_id} FAILED with error: {e}")
         print(error_trace)
         
-        update_status("failed")
+        update_status("failed", status_message=f"Task failed: {str(e)[:200]}")
             
         # Re-raise the exception so Celery marks the task as failed
         raise e
