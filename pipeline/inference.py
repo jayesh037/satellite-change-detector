@@ -24,7 +24,7 @@ def run_inference(
     checkpoint_path: Union[str, Path],
     output_dir: Union[str, Path],
     patch_size: int = 256,
-    overlap: int = 32,
+    overlap: int = 16,
     batch_size: int = 8,
     prob_threshold: float = 0.3,
     min_area: int = 500,
