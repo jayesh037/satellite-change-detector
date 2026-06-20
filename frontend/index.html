@@ -1027,18 +1027,32 @@
         let searchBboxLayer = null;
         let downloadPolls = {};
 
+        // --- Independent T1 / T2 scene ID state ---
+        let selectedT1SceneId = null;
+        let selectedT2SceneId = null;
+
         function updateSelectedInfo(target) {
-            const select = document.getElementById(`${target.toLowerCase()}-scene-select`);
+            const selectId = target === 'T1' ? 't1-scene-select' : 't2-scene-select';
+            const select = document.getElementById(selectId);
             const infoDiv = document.getElementById(`${target.toLowerCase()}-selected-info`);
             const selectedOpt = select.options[select.selectedIndex];
-            
+
             if (selectedOpt && selectedOpt.value) {
-                const date = selectedOpt.dataset.date;
+                const date  = selectedOpt.dataset.date;
                 const cloud = selectedOpt.dataset.cloud;
-                const tile = selectedOpt.dataset.tile;
-                infoDiv.innerText = `Selected: ${date} | ${cloud}% | ${tile}`;
+                const tile  = selectedOpt.dataset.tile;
+
+                if (target === 'T1') {
+                    selectedT1SceneId = selectedOpt.value;
+                    infoDiv.innerHTML = `<span style="color:#4caf50;font-weight:bold;">✓ T1 selected:</span> ${date} | ${cloud}%`;
+                } else {
+                    selectedT2SceneId = selectedOpt.value;
+                    infoDiv.innerText = `Selected: ${date} | ${cloud}% | ${tile}`;
+                }
             } else {
-                infoDiv.innerText = "";
+                if (target === 'T1') selectedT1SceneId = null;
+                else selectedT2SceneId = null;
+                infoDiv.innerHTML = '';
             }
         }
 
@@ -1097,26 +1111,31 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                
+
                 if (!res.ok) throw new Error("Search request failed");
                 const data = await res.json();
-                
-                const targetSelect = document.getElementById(targetDropdown === 'T1' ? 't1-scene-select' : 't2-scene-select');
-                targetSelect.innerHTML = '<option value="">-- Select from search ▼ --</option>'; // Clear it
-                updateSelectedInfo(targetDropdown);
+
+                // Only repopulate the TARGET dropdown — never touch the other one.
+                const targetSelectId = targetDropdown === 'T1' ? 't1-scene-select' : 't2-scene-select';
+                const targetSelect   = document.getElementById(targetSelectId);
+
+                // Snapshot of previously selected ID for this target (so we can restore it).
+                const prevSelectedId = targetDropdown === 'T1' ? selectedT1SceneId : selectedT2SceneId;
+
+                targetSelect.innerHTML = '<option value="">-- Select from search ▼ --</option>';
 
                 if (data.scenes.length === 0) {
                     resultsContainer.innerHTML = '<div style="color: #888; font-size: 0.85rem;">No scenes found.</div>';
                 } else {
                     data.scenes.forEach(scene => {
                         const optionText = `${scene.date} | ☁️ ${scene.cloud_cover.toFixed(1)}% | ${scene.tile}`;
-                        
+
                         const opt = document.createElement('option');
                         opt.value = scene.download_id;
                         opt.text = optionText;
-                        opt.dataset.date = scene.date;
+                        opt.dataset.date  = scene.date;
                         opt.dataset.cloud = scene.cloud_cover.toFixed(1);
-                        opt.dataset.tile = scene.tile;
+                        opt.dataset.tile  = scene.tile;
                         targetSelect.appendChild(opt);
 
                         const card = document.createElement('div');
@@ -1130,7 +1149,7 @@
                             </div>
                             <div id="dl-status-${scene.download_id}" style="font-size: 0.8rem; margin-top: 5px; color: #aaa;"></div>
                         `;
-                        
+
                         if (scene.bbox && scene.bbox.length === 4) {
                             card.addEventListener('mouseenter', () => {
                                 if (searchBboxLayer) map.removeLayer(searchBboxLayer);
@@ -1144,13 +1163,31 @@
                                 }
                             });
                         }
-                        
+
                         resultsContainer.appendChild(card);
-                        
+
                         document.getElementById(`dl-btn-${scene.download_id}`).addEventListener('click', (e) => {
                             startDownload(e.target);
                         });
                     });
+
+                    // Restore previously-selected value if it still exists in the new results.
+                    // Otherwise default to the first real option (index 1) so the dropdown is useful.
+                    if (prevSelectedId) {
+                        const matchingOpt = Array.from(targetSelect.options).find(o => o.value === prevSelectedId);
+                        if (matchingOpt) {
+                            targetSelect.value = prevSelectedId;
+                        } else {
+                            // Previous scene not in new results — pick first scene option
+                            if (targetSelect.options.length > 1) targetSelect.selectedIndex = 1;
+                        }
+                    } else {
+                        // No prior selection — pick first scene option automatically
+                        if (targetSelect.options.length > 1) targetSelect.selectedIndex = 1;
+                    }
+
+                    // Update info bar for the target dropdown only.
+                    updateSelectedInfo(targetDropdown);
                 }
             } catch (err) {
                 console.error(err);
