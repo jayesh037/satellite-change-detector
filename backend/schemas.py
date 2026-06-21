@@ -38,6 +38,8 @@ class ResultResponse(BaseModel):
     """Schema for retrieving the results of a detection task."""
     task_id: str
     status: str
+    status_message: Optional[str] = None
+    started_at: Optional[datetime] = None
     changed_area_km2: Optional[float] = None
     geojson_path: Optional[str] = None
     geojson_url: Optional[str] = None
@@ -101,3 +103,13 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    otp: str
+    new_password: str

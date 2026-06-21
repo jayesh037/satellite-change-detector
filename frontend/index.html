@@ -413,7 +413,45 @@
             font-size: 0.85rem;
         }
         .logout-btn:hover { text-decoration: underline; background: none; }
-    
+
+        /* Forgot password link */
+        .forgot-link {
+            display: block;
+            text-align: right;
+            font-size: 0.8rem;
+            color: #007acc;
+            cursor: pointer;
+            margin-top: 4px;
+            text-decoration: none;
+            transition: color 0.15s;
+        }
+        .forgot-link:hover { color: #29b6f6; text-decoration: underline; }
+
+        /* Reset password form states */
+        #form-forgot, #form-reset-otp { display: none; }
+        #form-forgot.active, #form-reset-otp.active { display: block; }
+
+        .otp-input {
+            letter-spacing: 4px;
+            font-size: 1.2rem;
+            text-align: center;
+            font-family: monospace;
+        }
+        .back-link {
+            display: inline-block;
+            margin-bottom: 12px;
+            font-size: 0.82rem;
+            color: #888;
+            cursor: pointer;
+        }
+        .back-link:hover { color: #ccc; }
+        .success-msg {
+            color: #4caf50;
+            font-size: 0.85rem;
+            margin-top: 10px;
+            text-align: center;
+            display: none;
+        }
         .toast {
             visibility: hidden;
             min-width: 250px;
@@ -581,12 +619,52 @@
                     <label>Email</label>
                     <input type="text" id="login-email" placeholder="user@example.com">
                 </div>
-                <div class="form-group" style="margin-bottom: 20px;">
+                <div class="form-group" style="margin-bottom: 4px;">
                     <label>Password</label>
                     <input type="password" id="login-password" placeholder="••••••••" style="background-color: #2d2d2d; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; width: 100%;">
                 </div>
-                <button id="btn-login" style="width: 100%;">Login</button>
+                <a class="forgot-link" id="forgot-password-link">Forgot password?</a>
+                <div style="margin-top: 12px;">
+                    <button id="btn-login" style="width: 100%;">Login</button>
+                </div>
                 <div id="login-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; text-align: center; display: none;"></div>
+            </div>
+
+            <!-- Step 1: Enter email to receive OTP -->
+            <div id="form-forgot" class="modal-form">
+                <span class="back-link" id="forgot-back-link">← Back to login</span>
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label>Email address</label>
+                    <input type="text" id="forgot-email" placeholder="user@example.com">
+                </div>
+                <button id="btn-send-otp" style="width: 100%;">Send Reset Link</button>
+                <div id="forgot-success" class="success-msg">Reset OTP sent to your email if account exists.</div>
+                <div id="forgot-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; text-align: center; display: none;"></div>
+            </div>
+
+            <!-- Step 2: Enter OTP + new password -->
+            <div id="form-reset-otp" class="modal-form">
+                <span class="back-link" id="otp-back-link">← Back to login</span>
+                <div class="form-group" style="margin-bottom: 10px;">
+                    <label>6-digit OTP (check your email)</label>
+                    <input type="text" id="reset-otp" placeholder="123456" maxlength="6" class="otp-input" style="background-color: #2d2d2d; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; width: 100%;">
+                </div>
+                <div class="form-group" style="margin-bottom: 4px;">
+                    <label>New Password</label>
+                    <input type="password" id="reset-new-password" placeholder="••••••••" style="background-color: #2d2d2d; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; width: 100%;">
+                    <div id="reset-password-rules" style="font-size: 0.75rem; color: #aaa; margin-top: 5px; line-height: 1.4;">
+                        <span id="reset-rule-length">❌ Min 6 characters</span><br>
+                        <span id="reset-rule-number">❌ 1 number</span><br>
+                        <span id="reset-rule-uppercase">❌ 1 uppercase letter</span>
+                    </div>
+                </div>
+                <div class="form-group" style="margin-bottom: 14px;">
+                    <label>Confirm New Password</label>
+                    <input type="password" id="reset-confirm-password" placeholder="••••••••" style="background-color: #2d2d2d; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; box-sizing: border-box; width: 100%;">
+                </div>
+                <button id="btn-reset-password" style="width: 100%;">Reset Password</button>
+                <div id="reset-success" class="success-msg">Password reset! Please login.</div>
+                <div id="reset-error" style="color: #f44336; font-size: 0.85rem; margin-top: 10px; text-align: center; display: none;"></div>
             </div>
 
             <div id="form-register" class="modal-form">
@@ -1650,9 +1728,36 @@
         const tabRegister = document.getElementById('tab-register');
         const formLogin = document.getElementById('form-login');
         const formRegister = document.getElementById('form-register');
+        const formForgot = document.getElementById('form-forgot');
+        const formResetOtp = document.getElementById('form-reset-otp');
         const authStatus = document.getElementById('auth-status');
         const authUsername = document.getElementById('auth-username');
         const btnLogout = document.getElementById('btn-logout');
+
+        // Track which email was used to request OTP
+        let forgotPasswordEmail = '';
+
+        function showAuthForm(formName) {
+            // formName: 'login' | 'register' | 'forgot' | 'reset-otp'
+            formLogin.classList.remove('active');
+            formRegister.classList.remove('active');
+            formForgot.classList.remove('active');
+            formResetOtp.classList.remove('active');
+            tabLogin.classList.remove('active');
+            tabRegister.classList.remove('active');
+
+            if (formName === 'login') {
+                formLogin.classList.add('active');
+                tabLogin.classList.add('active');
+            } else if (formName === 'register') {
+                formRegister.classList.add('active');
+                tabRegister.classList.add('active');
+            } else if (formName === 'forgot') {
+                formForgot.classList.add('active');
+            } else if (formName === 'reset-otp') {
+                formResetOtp.classList.add('active');
+            }
+        }
 
         function checkSession() {
             const user = JSON.parse(sessionStorage.getItem('userSession'));
@@ -1666,18 +1771,130 @@
             }
         }
 
-        tabLogin.addEventListener('click', () => {
-            tabLogin.classList.add('active');
-            tabRegister.classList.remove('active');
-            formLogin.classList.add('active');
-            formRegister.classList.remove('active');
+        tabLogin.addEventListener('click', () => showAuthForm('login'));
+        tabRegister.addEventListener('click', () => showAuthForm('register'));
+
+        // --- Forgot password link ---
+        document.getElementById('forgot-password-link').addEventListener('click', () => {
+            document.getElementById('forgot-email').value = document.getElementById('login-email').value || '';
+            document.getElementById('forgot-error').style.display = 'none';
+            document.getElementById('forgot-success').style.display = 'none';
+            showAuthForm('forgot');
         });
 
-        tabRegister.addEventListener('click', () => {
-            tabRegister.classList.add('active');
-            tabLogin.classList.remove('active');
-            formRegister.classList.add('active');
-            formLogin.classList.remove('active');
+        document.getElementById('forgot-back-link').addEventListener('click', () => showAuthForm('login'));
+        document.getElementById('otp-back-link').addEventListener('click', () => showAuthForm('login'));
+
+        // --- Send OTP ---
+        document.getElementById('btn-send-otp').addEventListener('click', async () => {
+            const email = document.getElementById('forgot-email').value.trim();
+            const errorDiv = document.getElementById('forgot-error');
+            const successDiv = document.getElementById('forgot-success');
+            const btn = document.getElementById('btn-send-otp');
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+
+            if (!email) {
+                errorDiv.innerText = 'Please enter your email address.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = 'Sending...';
+            try {
+                await fetch(`${API_BASE}/auth/forgot-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                // Always show success message (never reveal account existence)
+                successDiv.style.display = 'block';
+                forgotPasswordEmail = email;
+
+                // Auto-advance to OTP form after 1.5s
+                setTimeout(() => {
+                    document.getElementById('reset-otp').value = '';
+                    document.getElementById('reset-new-password').value = '';
+                    document.getElementById('reset-confirm-password').value = '';
+                    document.getElementById('reset-error').style.display = 'none';
+                    document.getElementById('reset-success').style.display = 'none';
+                    showAuthForm('reset-otp');
+                }, 1500);
+            } catch (err) {
+                errorDiv.innerText = 'Network error. Please try again.';
+                errorDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Send Reset Link';
+            }
+        });
+
+        // --- Real-time password validation for reset form ---
+        document.getElementById('reset-new-password').addEventListener('input', (e) => {
+            const val = e.target.value;
+            document.getElementById('reset-rule-length').innerHTML =
+                val.length >= 6 ? '✅ <span style="color:#4caf50;">Min 6 characters</span>' : '❌ Min 6 characters';
+            document.getElementById('reset-rule-number').innerHTML =
+                /\d/.test(val) ? '✅ <span style="color:#4caf50;">1 number</span>' : '❌ 1 number';
+            document.getElementById('reset-rule-uppercase').innerHTML =
+                /[A-Z]/.test(val) ? '✅ <span style="color:#4caf50;">1 uppercase letter</span>' : '❌ 1 uppercase letter';
+        });
+
+        // --- Reset Password (OTP verification) ---
+        document.getElementById('btn-reset-password').addEventListener('click', async () => {
+            const otp = document.getElementById('reset-otp').value.trim();
+            const newPw = document.getElementById('reset-new-password').value;
+            const confirmPw = document.getElementById('reset-confirm-password').value;
+            const errorDiv = document.getElementById('reset-error');
+            const successDiv = document.getElementById('reset-success');
+            const btn = document.getElementById('btn-reset-password');
+            errorDiv.style.display = 'none';
+            successDiv.style.display = 'none';
+
+            if (!otp || otp.length !== 6) {
+                errorDiv.innerText = 'Please enter the 6-digit OTP from your email.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (newPw !== confirmPw) {
+                errorDiv.innerText = 'Passwords do not match.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+            if (newPw.length < 6 || !/\d/.test(newPw) || !/[A-Z]/.test(newPw)) {
+                errorDiv.innerText = 'Password must be at least 6 characters with 1 number and 1 uppercase letter.';
+                errorDiv.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = 'Resetting...';
+            try {
+                const res = await fetch(`${API_BASE}/auth/reset-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: forgotPasswordEmail, otp, new_password: newPw })
+                });
+                if (!res.ok) {
+                    const data = await res.json();
+                    throw new Error(data.detail || 'Reset failed');
+                }
+                successDiv.style.display = 'block';
+                // Pre-fill login email and switch back to login after 2s
+                setTimeout(() => {
+                    document.getElementById('login-email').value = forgotPasswordEmail;
+                    document.getElementById('login-password').value = '';
+                    document.getElementById('login-error').style.display = 'none';
+                    showAuthForm('login');
+                }, 2000);
+            } catch (err) {
+                errorDiv.innerText = err.message;
+                errorDiv.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerText = 'Reset Password';
+            }
         });
 
         document.getElementById('btn-login').addEventListener('click', async () => {
@@ -1760,72 +1977,6 @@
         });
 
         checkSession();
-
-    </script>
-</body>
-</html>l || !password) {
-                errorDiv.innerText = "Please fill in all fields.";
-                errorDiv.style.display = 'block';
-                return;
-            }
-            
-            try {
-                const res = await fetch(`${API_BASE}/auth/register`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, email, password })
-                });
-                if (!res.ok) {
-                    const data = await res.json();
-                    throw new Error(data.detail || "Registration failed");
-                }
-                const data = await res.json();
-                sessionStorage.setItem('userSession', JSON.stringify(data));
-                checkSession();
-            } catch (err) {
-                errorDiv.innerText = err.message;
-                errorDiv.style.display = 'block';
-            }
-        });
-
-        btnLogout.addEventListener('click', () => {
-            sessionStorage.removeItem('userSession');
-            location.reload();
-        });
-
-        checkSession();
-
-    </script>
-</body>
-</html>           errorDiv.style.display = 'block';
-            }
-        });
-
-        btnLogout.addEventListener('click', () => {
-            sessionStorage.removeItem('userSession');
-            location.reload();
-        });
-
-        checkSession();
-
-    </script>
-</body>
-</html>    checkSession();
-
-    </script>
-</body>
-</html>    });
-
-        btnLogout.addEventListener('click', () => {
-            sessionStorage.removeItem('userSession');
-            location.reload();
-        });
-
-        checkSession();
-
-    </script>
-</body>
-</html>    checkSession();
 
     </script>
 </body>

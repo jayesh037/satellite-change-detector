@@ -29,6 +29,8 @@ class User(Base):
         DateTime(timezone=True), 
         server_default=func.now()
     )
+    reset_otp: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    reset_otp_expiry: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class AOI(Base):
@@ -73,6 +75,8 @@ class DetectionResult(Base):
     )
     task_id: Mapped[Optional[str]] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(50), nullable=False)
+    status_message: Mapped[Optional[str]] = mapped_column(String(512))
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     
     change_mask_path: Mapped[Optional[str]] = mapped_column(String(512))
     geojson_path: Mapped[Optional[str]] = mapped_column(String(512))
@@ -152,6 +156,14 @@ def get_engine() -> Any:
 # Initialize global session maker
 engine = get_engine()
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+# Ensure all tables (including new columns added via ALTER) exist.
+# For new columns on existing tables, use Alembic migrations in production.
+# This call is safe to run on startup — it creates tables that don't exist yet.
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as _e:
+    print(f"Warning: create_all failed (non-fatal): {_e}")
 
 def get_db():
     """

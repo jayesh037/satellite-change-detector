@@ -58,7 +58,8 @@ def compose_alert_email_html(
     t1_date: str,
     t2_date: str,
     threshold_km2: float,
-    result_url: str
+    result_url: str,
+    processing_minutes: float = None
 ) -> str:
     """
     Return complete HTML string for the alert email body.
@@ -85,11 +86,18 @@ def compose_alert_email_html(
     Use only inline CSS (email clients strip style tags).
     """
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    processing_row = ""
+    if processing_minutes is not None:
+        processing_row = f"""
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #8b949e;">Processing Time</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #ffffff; text-align: right;">{processing_minutes} minutes on cloud CPU</td>
+                    </tr>"""
     html = f"""
     <div style="background-color: #0d1117; color: #c9d1d9; font-family: Arial, sans-serif; padding: 20px;">
         <div style="max-width: 600px; margin: 0 auto; background-color: #161b22; border-radius: 8px; overflow: hidden; border: 1px solid #30363d;">
             <div style="padding: 20px; border-bottom: 1px solid #30363d; text-align: center;">
-                <h2 style="margin: 0; color: #ffffff;">🛰️ Change Detection Alert</h2>
+                <h2 style="margin: 0; color: #ffffff;">✅ Satellite Change Detection Complete</h2>
                 <div style="margin-top: 10px;">
                     <span style="background-color: #e74c3c; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 12px;">⚠️ THRESHOLD EXCEEDED</span>
                 </div>
@@ -102,6 +110,10 @@ def compose_alert_email_html(
                     deforestation, or other structural changes.
                 </p>
                 <table style="width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px;">
+                    <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #8b949e;">Job ID</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #ffffff; text-align: right; font-family: monospace; font-size: 12px;">{task_id}</td>
+                    </tr>
                     <tr>
                         <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #8b949e;">Tile</td>
                         <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #ffffff; text-align: right;">{tile} (Bengaluru, India)</td>
@@ -119,12 +131,13 @@ def compose_alert_email_html(
                         <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #ffffff; text-align: right;">{threshold_km2} km²</td>
                     </tr>
                     <tr>
-                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #8b949e;">Detection Time</td>
-                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #ffffff; text-align: right;">{current_time}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #8b949e;">Completed At</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #30363d; color: #ffffff; text-align: right;">{current_time} UTC</td>
                     </tr>
+                    {processing_row}
                 </table>
                 <div style="text-align: center; margin-top: 30px; margin-bottom: 10px;">
-                    <a href="{result_url}" style="background-color: #e74c3c; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">View Results</a>
+                    <a href="{result_url}" style="background-color: #238636; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; display: inline-block; font-weight: bold;">View Results &rarr;</a>
                 </div>
             </div>
             <div style="background-color: #0d1117; padding: 15px; border-top: 1px solid #30363d; text-align: center; font-size: 12px; color: #8b949e;">
@@ -144,7 +157,8 @@ def send_alert_email(
     t1_date: str = "2021-03-14",
     t2_date: str = "2023-03-14",
     threshold_km2: float = 1.0,
-    result_url: str = ""
+    result_url: str = "",
+    processing_minutes: float = None
 ) -> bool:
     """
     Send HTML alert email via SMTP.
@@ -175,11 +189,20 @@ def send_alert_email(
             return False
             
         msg = MIMEMultipart('alternative')
-        msg['Subject'] = f"🛰️ Change Detected — {tile} {t2_date}"
+        msg['Subject'] = f"✅ Satellite Change Detection Complete — {changed_area_km2:.2f} km² changed"
         msg['From'] = f"{config.get('sender_name', 'Satellite Change Detector')} <{config.get('smtp_user', '')}>"
         msg['To'] = recipient_email
         
-        text_body = f"Change detected: {changed_area_km2:.3f} km².\nThreshold: {threshold_km2} km²\nTile: {tile}\nPeriod: {t1_date} to {t2_date}\nView Results: {result_url}"
+        text_body = (
+            f"✅ Detection Complete!\n"
+            f"Changed Area: {changed_area_km2:.3f} km²\n"
+            f"Period: {t1_date} → {t2_date}\n"
+            f"Tile: {tile}\n"
+            f"Job ID: {task_id}\n"
+            f"Threshold: {threshold_km2} km²\n"
+            + (f"Processing Time: {processing_minutes} minutes on cloud CPU\n" if processing_minutes is not None else "")
+            + f"View Results: {result_url}"
+        )
         html_body = compose_alert_email_html(
             recipient_email=recipient_email,
             task_id=task_id,
@@ -188,7 +211,8 @@ def send_alert_email(
             t1_date=t1_date,
             t2_date=t2_date,
             threshold_km2=threshold_km2,
-            result_url=result_url
+            result_url=result_url,
+            processing_minutes=processing_minutes
         )
         
         part1 = MIMEText(text_body, 'plain')
@@ -216,7 +240,8 @@ def trigger_alert(
     task_id: str = "",
     tile: str = "T43PGQ",
     t1_date: str = "",
-    t2_date: str = ""
+    t2_date: str = "",
+    processing_minutes: float = None
 ) -> bool:
     """
     Main function called by Celery worker after inference.
@@ -259,7 +284,8 @@ def trigger_alert(
             t1_date=t1_date,
             t2_date=t2_date,
             threshold_km2=threshold_km2,
-            result_url=result_url
+            result_url=result_url,
+            processing_minutes=processing_minutes
         )
         if email_sent:
             print(f"Alert email sent to {recipient_email}")
