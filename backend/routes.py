@@ -94,7 +94,9 @@ def _send_otp_email(recipient_email: str, otp: str) -> bool:
     from workers.alerts import load_alert_config
     try:
         config = load_alert_config()
-        if not config.get("email_enabled", False):
+        import os as _os
+        _email_enabled = config.get("email_enabled", False) or _os.environ.get("ALERT_EMAIL_ENABLED", "").lower() == "true"
+        if not _email_enabled:
             print("[reset-pw] Email disabled in config — OTP not sent.")
             return False
 
