@@ -129,10 +129,13 @@ def _send_otp_email(recipient_email: str, otp: str) -> bool:
         msg.attach(MIMEText(text_body, "plain"))
         msg.attach(MIMEText(html_body, "html"))
 
-        server = smtplib.SMTP(config.get("smtp_host"), int(config.get("smtp_port", 587)))
-        server.starttls()
-        server.login(config.get("smtp_user", ""), config.get("smtp_password", ""))
-        server.sendmail(config.get("smtp_user", ""), recipient_email, msg.as_string())
+        smtp_host = config.get("smtp_host", "smtp.gmail.com")
+        smtp_user = config.get("smtp_user", "") or os.environ.get("SMTP_USER", "")
+        smtp_password = config.get("smtp_password", "") or os.environ.get("SMTP_PASSWORD", "")
+        # Use SSL on 465 (Render blocks 587)
+        with smtplib.SMTP_SSL(smtp_host, 465) as server:
+            server.login(smtp_user, smtp_password)
+            server.sendmail(smtp_user, recipient_email, msg.as_string())
         server.quit()
         return True
     except Exception as e:
