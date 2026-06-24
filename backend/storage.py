@@ -99,10 +99,11 @@ def delete_file(b2_key: str) -> None:
 
 
 def file_exists(b2_key: str) -> bool:
-    """Check if file exists in B2 without downloading."""
+    """Check if file exists in B2 using list_objects (head_object gives 403 on B2)."""
     try:
         client = get_b2_client()
-        client.head_object(Bucket=BUCKET, Key=b2_key)
+        response = client.list_objects_v2(Bucket=BUCKET, Prefix=b2_key, MaxKeys=1)
+        return response.get("KeyCount", 0) > 0
         return True
     except Exception:
         return False
