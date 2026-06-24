@@ -384,10 +384,16 @@ def get_download_status(task_id: str):
 @router.get("/debug/env")
 def debug_env():
     """Temporary debug endpoint to check if environment variables are set."""
+    from backend.storage import file_exists, get_signed_url
+    test_key = "results/35760b81-daa6-4f3b-9ba9-7a92c611b07d/change_mask.geojson"
+    exists = file_exists(test_key)
+    signed = get_signed_url(test_key) if exists else None
     return {
         "copernicus_client_id": bool(os.environ.get("COPERNICUS_CLIENT_ID")),
         "copernicus_username": bool(os.environ.get("COPERNICUS_USERNAME")),
         "copernicus_password": bool(os.environ.get("COPERNICUS_PASSWORD")),
+        "b2_key_exists": exists,
+        "signed_url_preview": signed[:80] if signed else None,
     }
 
 
