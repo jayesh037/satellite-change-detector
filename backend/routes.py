@@ -394,6 +394,10 @@ def debug_env():
         "copernicus_password": bool(os.environ.get("COPERNICUS_PASSWORD")),
         "b2_key_exists": exists,
         "signed_url_preview": signed[:80] if signed else None,
+        "b2_endpoint": bool(os.environ.get("B2_ENDPOINT")),
+        "b2_access_key": bool(os.environ.get("B2_ACCESS_KEY_ID")),
+        "b2_secret_key": bool(os.environ.get("B2_SECRET_ACCESS_KEY")),
+        "b2_bucket": os.environ.get("B2_BUCKET_NAME"),
     }
 
 
