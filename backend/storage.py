@@ -104,7 +104,6 @@ def file_exists(b2_key: str) -> bool:
         client = get_b2_client()
         response = client.list_objects_v2(Bucket=BUCKET, Prefix=b2_key, MaxKeys=1)
         return response.get("KeyCount", 0) > 0
-        return True
     except Exception:
         return False
 
